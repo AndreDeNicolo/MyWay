@@ -13,10 +13,9 @@
     <uses-feature
         android:glEsVersion="0x00020000"
         android:required="true" />
-
     <uses-feature
         android:name="android.hardware.sensor.gyroscope"
-        android:required="true"/>
+        android:required="true" />
 
     <application
         android:allowBackup="false"
@@ -27,8 +26,9 @@
         android:theme="@android:style/Theme.NoTitleBar"
         android:usesCleartextTraffic="false"
         tools:ignore="GoogleAppIndexingWarning">
-
-        <activity android:name="myway.common.activities.ScannerActivity"></activity>
+        <activity android:name="myway.common.activities.PopUpWindow"
+            android:theme="@style/popupWindow"/>
+        <activity android:name="myway.common.activities.ScannerActivity" />
         <activity android:name="myway.common.activities.MainMenu">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -42,10 +42,7 @@
         -->
         <meta-data
             android:name="com.google.android.wearable.standalone"
-            android:value="true" />
-
-        <!-- Indicates whether "Google Play Services for AR" (ARCore) is "required" or "optional". -->
-
+            android:value="true" /> <!-- Indicates whether "Google Play Services for AR" (ARCore) is "required" or "optional". -->
         <activity
             android:name="myway.common.activities.IndoorNavSession"
             android:configChanges="orientation|screenSize"

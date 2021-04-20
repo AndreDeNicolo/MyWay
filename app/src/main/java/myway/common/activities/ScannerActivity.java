@@ -123,11 +123,13 @@ public class ScannerActivity extends Activity {
                         m.setTarget(pathfoundhandler);
                         m.sendToTarget();
 
-                        Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
+                        Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
+                        startActivity(i);
+                        /*Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
                         String msg = MainMenu.SESSION_CREATE;
                         i.putExtra("sessiontype", msg);
                         i.putExtra("path",pathscanned);
-                        startActivity(i);
+                        startActivity(i);*/
                     }
                     else if(sessionType.equals(MainMenu.SESSION_FIND)){
                         String pathscanned = qrCodes.valueAt(0).displayValue;
