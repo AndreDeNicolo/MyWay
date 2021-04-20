@@ -27,7 +27,7 @@
         android:usesCleartextTraffic="false"
         tools:ignore="GoogleAppIndexingWarning">
         <activity android:name="myway.common.activities.PopUpWindow"
-            android:theme="@style/popupWindow"/>
+            android:theme="@style/popupWindow" />
         <activity android:name="myway.common.activities.ScannerActivity" />
         <activity android:name="myway.common.activities.MainMenu">
             <intent-filter>
