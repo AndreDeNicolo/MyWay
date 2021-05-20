@@ -53,6 +53,7 @@ import myway.common.helpers.OrientationHelper;
 import myway.common.helpers.SavedTap;
 import myway.common.helpers.SnackbarHelper;
 import myway.common.helpers.TapHelper;
+import myway.common.helpers.TextToSpeechHelper;
 import myway.common.helpers.TrackingStateHelper;
 import myway.common.samplerender.Framebuffer;
 import myway.common.samplerender.GLError;
@@ -82,6 +83,7 @@ import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -203,6 +205,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     private OrientationHelper orientationHelper;
 
+    private TextToSpeechHelper textToSpeechHelper;
+
     private FileManager fileManager;
     private double lastTime = System.currentTimeMillis();
     @Override
@@ -253,6 +257,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             loadedTaps = fileManager.loadAnchors(qrDir, pathName);
         }
 
+        textToSpeechHelper = new TextToSpeechHelper(this);
 
         ImageButton settingsButton = findViewById(R.id.settings_button);
         settingsButton.setOnClickListener(
@@ -304,6 +309,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             }
         }
         if(item.getItemId() == R.id.distancesetting){
+            DecimalFormat df = new DecimalFormat("#.00");
+            textToSpeechHelper.speak(df.format(distanceCameraAnchor(cameraPose, loadedTaps.get(loadedTaps.size()-1).getModelMatrix()))+"metri al termine del percorso");
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Set render anchors distance");
 
@@ -375,6 +382,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
 
         super.onDestroy();
+        textToSpeechHelper.shutdown();
     }
 
     @Override
@@ -456,6 +464,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             surfaceView.onPause();
             session.pause();
         }
+        textToSpeechHelper.stop();
     }
 
     @Override
@@ -598,7 +607,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         if (session == null) {
             return;
         }
-
         // Texture names should only be set once on a GL thread unless they change. This is done during
         // onDrawFrame rather than onSurfaceCreated since the session is not guaranteed to have been
         // initialized during the execution of onSurfaceCreated.
@@ -1017,4 +1025,5 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         m.what = 1;
         coordstextHandler.sendMessage(m);
     }
+
 }
