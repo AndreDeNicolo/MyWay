@@ -7,8 +7,6 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.Color;
 import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.Image;
 import android.opengl.GLES30;
@@ -40,21 +38,18 @@ import com.google.ar.core.Config;
 import com.google.ar.core.Config.InstantPlacementMode;
 import com.google.ar.core.Frame;
 import com.google.ar.core.HitResult;
-import com.google.ar.core.InstantPlacementPoint;
 import com.google.ar.core.LightEstimate;
-import com.google.ar.core.Plane;
-import com.google.ar.core.Point;
-import com.google.ar.core.Point.OrientationMode;
 import com.google.ar.core.PointCloud;
 import com.google.ar.core.Pose;
 import com.google.ar.core.Session;
-import com.google.ar.core.Trackable;
 import com.google.ar.core.TrackingState;
-import myway.common.helpers.CameraPermissionHelper;
+
 import myway.common.helpers.DepthSettings;
 import myway.common.helpers.DisplayRotationHelper;
+import myway.common.helpers.FileManager;
 import myway.common.helpers.FullScreenHelper;
 import myway.common.helpers.InstantPlacementSettings;
+import myway.common.helpers.OrientationHelper;
 import myway.common.helpers.SavedTap;
 import myway.common.helpers.SnackbarHelper;
 import myway.common.helpers.TapHelper;
@@ -102,6 +97,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final float MODEL_SCALE = 1f;
     private static final float END_POINT_MODEL_SCALE = 0.01f;
     private static final float END_POINT_ROTATION_SPEED_DEGREES = 10;
+    private static final float DIRECTION_ANGLE_ERROR = 15;//initial angle detected by the device is wrong by 20 degrees
 
     private static final String PLACE_MESSAGE = "Tocca una superficie per piazzare un indicatore di percorso.";
     private static final String FOLLOW_MESSAGE = "Segui il percorso indicato";
@@ -190,6 +186,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     private final int MAX_3D_OBJECTS = 1000;
     private TextView cameraCoordTextView;
+    private TextView deviceRotationTextView;
     private ArrayList<SavedTap> savedTaps = new ArrayList<>();
     private ArrayList<SavedTap> loadedTaps = new ArrayList<>();
     private boolean tapsLoaded;
@@ -197,15 +194,17 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private Pose cameraPose;
 
     private String sessionType;
-    private String pathName;//string passed from previous activity (createway or findway)
+    private String qrDir;//string passed from previous activity (createway or findway)
+    private String pathName;
 
     private Handler coordstextHandler;
     //gyroscope attributes
     private SensorManager sensorManager;
-    private Sensor gyroscopeSensor;
-    private SensorEventListener gyroscopeEventListener;
-    private float sensorAngle;
 
+    private OrientationHelper orientationHelper;
+
+    private FileManager fileManager;
+    private double lastTime = System.currentTimeMillis();
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -213,12 +212,13 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         surfaceView = findViewById(R.id.surfaceview);
         cameraCoordTextView = findViewById(R.id.cameracoordstext);
         cameraCoordTextView.setTextColor(Color.RED);
+        deviceRotationTextView = findViewById(R.id.devicerotationtext);
+        deviceRotationTextView.setTextColor(Color.GREEN);
         displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
-        initSensors();//initialize gyroscope sensor
+        initSensors();//initialize orientationHelper and sensorManager
         // Set up touch listener.
         tapsLoaded = false;
         renderDistance = 4;
-        sensorAngle = 0;
 
         tapHelper = new TapHelper(/*context=*/ this);
         surfaceView.setOnTouchListener(tapHelper);
@@ -243,12 +243,16 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         //get sessiontype info passed from previous activity
         Bundle extras = getIntent().getExtras();
-        pathName = extras.getString("path");
+        qrDir = extras.getString("qrCode");//qr code scanned
+        pathName = extras.getString("pathName");
         sessionType = extras.getString("sessiontype");
+        fileManager = new FileManager(this, qrDir);
         if(sessionType.equals(MainMenu.SESSION_FIND)){
-            Toast.makeText(this, "Path caricata : "+pathName, Toast.LENGTH_SHORT).show();
-            loadTrackedAnchors();
+            Toast.makeText(this, "Path caricata : "+ qrDir, Toast.LENGTH_SHORT).show();
+            //loadTrackedAnchors();
+            loadedTaps = fileManager.loadAnchors(qrDir, pathName);
         }
+
 
         ImageButton settingsButton = findViewById(R.id.settings_button);
         settingsButton.setOnClickListener(
@@ -268,37 +272,19 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     //nascondere alcune voci del menù a seconda del tipo di sessione (se sto visualizzando un percorso salvato nascondo)
     private void hideMenuItems(Menu m){
-        MenuItem saveb = m.findItem(R.id.saveanchors);
         MenuItem depthsb = m.findItem(R.id.depth_settings);
         MenuItem undob = m.findItem(R.id.undo);
+        MenuItem savePath = m.findItem(R.id.saveQrDir);
 
-        saveb.setVisible(false);
         depthsb.setVisible(false);
         undob.setVisible(false);
+        savePath.setVisible(false);
     }
 
-    //inizializzazione sensori(orientation e giroscopio
+    //inizializzazione sensori
     private void initSensors(){
         sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
-        gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION);
-        if(gyroscopeSensor == null){
-            Toast.makeText(this, "Il dispositivo non presenta il giroscopio", Toast.LENGTH_SHORT).show();
-            finish();
-        }
-        gyroscopeEventListener = new SensorEventListener() {
-            @Override
-            public void onSensorChanged(SensorEvent event) {
-                //0 (x axis) 1 (y axis) 2 (z axis)
-                double cameraRotationDegrees = event.values[0];
-                sensorAngle = event.values[0]+90;
-                Log.i("CAMERA ROTATIONNNNNNN DEGREESSSSS", Double.toString(cameraRotationDegrees));
-            }
-
-            @Override
-            public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-            }
-        };
+        orientationHelper = new OrientationHelper();
     }
 
     //menu opzioni settaggio click
@@ -307,8 +293,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             launchDepthSettingsMenuDialog();
             return true;
         }
-        if(item.getItemId() == R.id.saveanchors){
-            saveTrackedAnchors();
+        if(item.getItemId() == R.id.saveQrDir){
+            fileManager.savePath(savedTaps);
             return true;
         }
         if(item.getItemId() == R.id.undo){
@@ -379,7 +365,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     @Override
     protected void onDestroy() {
-        sensorManager.unregisterListener(gyroscopeEventListener);
+        sensorManager.unregisterListener(orientationHelper.getAccelerometerListener());
+        sensorManager.unregisterListener(orientationHelper.getMagnetometerListener());
         if (session != null) {
             //guardare lifecycle
             //chiusura della sessione di arcore per rilasciare le risorse utilizzate
@@ -394,7 +381,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     protected void onResume() {
         super.onResume();
         //registrazione sensori utilizzati
-        sensorManager.registerListener(gyroscopeEventListener, gyroscopeSensor, SensorManager.SENSOR_DELAY_FASTEST);
+        sensorManager.registerListener(orientationHelper.getAccelerometerListener(), sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_FASTEST);
+        sensorManager.registerListener(orientationHelper.getMagnetometerListener(), sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD), SensorManager.SENSOR_DELAY_FASTEST);
         ///////
         //controllo se arcore risulta installato sul dispositivo
         if (session == null) {
@@ -458,7 +446,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     public void onPause() {
         super.onPause();
         //unregistrare sensori precedentemente registrati
-        sensorManager.unregisterListener(gyroscopeEventListener);
+        sensorManager.unregisterListener(orientationHelper.getAccelerometerListener());
+        sensorManager.unregisterListener(orientationHelper.getMagnetometerListener());
         if (session != null) {
             // Note that the order matters - GLSurfaceView is paused first so that it does not try
             // to query the session. If Session is paused before GLSurfaceView, GLSurfaceView may
@@ -621,6 +610,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         //avvisare la sessione ARCore che la  grandezza della view è cambiata quindi bisogna aggiustare la perspective matrix e il background video
         displayRotationHelper.updateSessionIfNeeded(session);
+
+        /////////////angolo get orientation//////////////
+        if((System.currentTimeMillis() - lastTime) > 1000 ){
+            Log.i("ANGOLOOOOOOOOOOOOOOOOOO PITCHHHHHHHHH:", Float.toString(orientationHelper.getAzimuth()));
+            lastTime = System.currentTimeMillis();
+        }
 
         //ottengo il frame corrente dalla sessione ARCore.
         Frame frame;
@@ -983,52 +978,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
         session.configure(config);
     }
-
-    //metodo per salvare le ancore create su file
-    private void saveTrackedAnchors(){
-        String fileName = pathName;
-        FileOutputStream fileOutputStream;
-        ObjectOutputStream objectOutputStream;
-        try {
-            ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
-            File directory = contextWrapper.getDir(getFilesDir().getName(), Context.MODE_PRIVATE);
-            File outputFile  = new File(directory, fileName);
-            Log.i("OutputFile", outputFile.getAbsolutePath());
-            fileOutputStream = new FileOutputStream(outputFile.getAbsolutePath());
-            objectOutputStream = new ObjectOutputStream(fileOutputStream);
-            objectOutputStream.writeObject(savedTaps);//savedTaps arratlist wich contains saved coord of the anchor taps
-            objectOutputStream.close();
-            fileOutputStream.close();
-            Toast.makeText(this, "Path salvata : "+outputFile.getAbsolutePath(), Toast.LENGTH_SHORT).show();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    //caricare le ancore da file
-    private void loadTrackedAnchors(){
-        ObjectInputStream objectInputStream;
-        String fileName = pathName;//in the case sessiontype
-        ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
-        File directory = contextWrapper.getDir(getFilesDir().getName(), Context.MODE_PRIVATE);
-        File outputFile  = new File(directory, fileName);
-        try {
-            FileInputStream fileInputStream = new FileInputStream(outputFile);
-            objectInputStream = new ObjectInputStream(fileInputStream);
-            loadedTaps = (ArrayList<SavedTap>) objectInputStream.readObject();
-            Log.i("MIOINFO TAPS CARICATI", Integer.toString(loadedTaps.size()));
-            objectInputStream.close();
-            fileInputStream.close();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-    }
     //method to save each anchor placement tap coors
     //example how to recreate a motionevent : https://www.generacodice.com/cn/articolo/1334664/Android%3A-How-to-create-a-MotionEvent
     private void saveTapLocationAnchor(MotionEvent tap, float[] newAnchorModelMatrix){
@@ -1039,7 +988,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         int action = tap.getAction();
         int metaState = tap.getMetaState();
         //rotate matrix according to camera rotation
-        Matrix.rotateM(newAnchorModelMatrix, 0, -sensorAngle, 0, 1, 0);
+        //Matrix.rotateM(newAnchorModelMatrix, 0, -sensorAngle, 0, 1, 0);
+        Matrix.rotateM(newAnchorModelMatrix, 0, -orientationHelper.getAzimuth() - DIRECTION_ANGLE_ERROR, 0, 1, 0);
         SavedTap ts = new SavedTap(xcoord, ycoord, downTime, eventTime, action, metaState, newAnchorModelMatrix);//save also the anchor model matrix = coords in the real world
         savedTaps.add(ts);
     }
@@ -1051,6 +1001,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     private void updateCameraCoordsTextView(){
         cameraCoordTextView.setText("x: "+cameraPose.tx()+" y:"+cameraPose.ty()+" z:"+cameraPose.tz());
+        deviceRotationTextView.setText("Device Rotation Roll : "+orientationHelper.getAzimuth());
     }
 
     //metodo per scalare l'ultima ancora (se la sessione e quella per seguire un percorso)

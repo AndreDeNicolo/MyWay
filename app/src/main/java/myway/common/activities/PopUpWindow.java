@@ -3,11 +3,15 @@ package myway.common.activities;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.Intent;
 import android.graphics.Point;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -17,10 +21,13 @@ import android.widget.RelativeLayout;
 import com.google.android.gms.vision.text.Line;
 import com.myway.myway.R;
 
+import java.io.File;
+
 public class PopUpWindow extends Activity {
 
     private int screenWidth, screenHeight;
     private LinearLayout linearLayout;
+    private String qrDirectory;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,9 +35,14 @@ public class PopUpWindow extends Activity {
         this.getActionBar().setTitle("Seleziona percorso");
         setContentView(R.layout.activity_pop_up_window);
 
+
+        Bundle extras = getIntent().getExtras();
+        qrDirectory = extras.getString("qrCode");
+
         setWindowLayout();
         setPopUpWindowProp();
-        addPathButton("dasfjnasfa");
+        addPathButton();
+
     }
 
     private void setPopUpWindowProp(){
@@ -57,9 +69,35 @@ public class PopUpWindow extends Activity {
         this.addContentView(linearLayout, linearLayoutParams);
     }
 
-    public void addPathButton(String pathName){
-        Button b = new Button(this);
-        b.setText(pathName);
-        linearLayout.addView(b);
+    public void addPathButton(){
+        //lettura file salvati
+        ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
+        File appDirectory = contextWrapper.getDir(getFilesDir().getName(), Context.MODE_PRIVATE);
+        File qrDir = new File(appDirectory, qrDirectory);
+        File[] files = qrDir.listFiles();
+        for(int k = 0; k < files.length; k++){
+            //Creazione bottoni
+            Button b = new Button(this);
+            b.setText(files[k].getName());
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent i = new Intent(PopUpWindow.this, IndoorNavSession.class);
+                    String msg = MainMenu.SESSION_FIND;
+                    i.putExtra("sessiontype", msg);
+                    i.putExtra("qrCode", qrDirectory);
+                    i.putExtra("pathName", b.getText());
+                    startActivity(i);
+                }
+            });
+            linearLayout.addView(b);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        //set detected in ScannerActivity so another popup window can be opened
+        ScannerActivity.detected = false;
     }
 }

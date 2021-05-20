@@ -30,5 +30,11 @@
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
       android:text="TextView" />
+  <TextView
+      android:id="@+id/devicerotationtext"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="20dp"
+      android:text="TextView" />
 
 </RelativeLayout>

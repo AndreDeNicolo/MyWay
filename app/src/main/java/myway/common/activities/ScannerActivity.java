@@ -38,7 +38,7 @@ public class ScannerActivity extends Activity {
     private String previousPathScanned;//to not make many toast
 
     private String sessionType; //createway/findway
-    private boolean detected; //allow only 1 detection
+    public static boolean detected; //allow only 1 detection, can be activated outside this class (PopUpWindow)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,7 +73,7 @@ public class ScannerActivity extends Activity {
         barcodeDetector = new BarcodeDetector.Builder(this)
                 .setBarcodeFormats(Barcode.QR_CODE).build();
         cameraSource = new CameraSource.Builder(this, barcodeDetector)
-                .setRequestedPreviewSize(650, 480).setFacing(CameraSource.CAMERA_FACING_BACK).build();
+                .setRequestedPreviewSize(650, 480).setFacing(CameraSource.CAMERA_FACING_BACK).setAutoFocusEnabled(true).build();
 
         surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
@@ -114,25 +114,26 @@ public class ScannerActivity extends Activity {
             public void receiveDetections(@NonNull Detector.Detections<Barcode> detections) {
                 SparseArray<Barcode> qrCodes = detections.getDetectedItems();
                 if(qrCodes.size() != 0 && !detected){
-                    detected = true;
+                    Log.i("JFASNFASJfnajSNFAJNFSAJNFASJNFSAF", "JDFKSAFJSAFSAJKFBJAFBASKJFSBAKJASKJ");
                     if(sessionType.equals(MainMenu.SESSION_CREATE)){
-                        Log.i("sdsfds","hdhgddghgd");
-                        Message m = Message.obtain();
-                        String pathscanned = qrCodes.valueAt(0).displayValue;
+                        String qrCodeScanned = qrCodes.valueAt(0).displayValue;
+                        /*Message m = Message.obtain();
                         m.obj = pathscanned;
                         m.setTarget(pathfoundhandler);
                         m.sendToTarget();
-
+                        //start pop up window with existent paths
                         Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
                         startActivity(i);
-                        /*Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
+                        detected = true;*/
+                        //start creating path arcore session
+                        Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
                         String msg = MainMenu.SESSION_CREATE;
                         i.putExtra("sessiontype", msg);
-                        i.putExtra("path",pathscanned);
-                        startActivity(i);*/
+                        i.putExtra("qrCode",qrCodeScanned);
+                        startActivity(i);
                     }
                     else if(sessionType.equals(MainMenu.SESSION_FIND)){
-                        String pathscanned = qrCodes.valueAt(0).displayValue;
+                        /*String pathscanned = qrCodes.valueAt(0).displayValue;
                         String fileName = pathscanned;
                         ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
                         File directory = contextWrapper.getDir(getFilesDir().getName(), Context.MODE_PRIVATE);
@@ -154,7 +155,13 @@ public class ScannerActivity extends Activity {
                             i.putExtra("sessiontype", msg);
                             i.putExtra("path", pathscanned);
                             startActivity(i);
-                        }
+                        }*/
+                        //start pop up window, which contains the list of the files within qr directory
+                        String qrCodeScanned = qrCodes.valueAt(0).displayValue;
+                        Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
+                        i.putExtra("qrCode", qrCodeScanned);
+                        startActivity(i);
+                        detected = true;
                     }
 
                 }
@@ -164,5 +171,10 @@ public class ScannerActivity extends Activity {
 
     private void notifyUser(String message){
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
     }
 }

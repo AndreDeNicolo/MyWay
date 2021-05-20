@@ -34,6 +34,7 @@
   <style name="popupWindow">
     <item name="android:windowIsTranslucent">true</item>
     <item name="android:windowCloseOnTouchOutside">true</item>
+    <item name="theme">@style/Theme.AppCompat.Dialog</item>
   </style>
 
 
