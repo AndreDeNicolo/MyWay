@@ -24,7 +24,7 @@ public class OrientationHelper {
     private SensorEventListener accelerometerListener;
     private SensorEventListener magnetometerListener;
 
-
+    //class that manage device orientation datas and sensors (listeners)
     public OrientationHelper(){
         mGravity = null;
         mGeomagnetic = null;
