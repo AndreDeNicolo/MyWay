@@ -38,10 +38,14 @@ import com.google.ar.core.Config;
 import com.google.ar.core.Config.InstantPlacementMode;
 import com.google.ar.core.Frame;
 import com.google.ar.core.HitResult;
+import com.google.ar.core.InstantPlacementPoint;
 import com.google.ar.core.LightEstimate;
+import com.google.ar.core.Plane;
+import com.google.ar.core.Point;
 import com.google.ar.core.PointCloud;
 import com.google.ar.core.Pose;
 import com.google.ar.core.Session;
+import com.google.ar.core.Trackable;
 import com.google.ar.core.TrackingState;
 
 import myway.common.helpers.DepthSettings;
@@ -708,6 +712,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             pointCloudShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
             render.draw(pointCloudMesh, pointCloudShader);
         }
+
+        planeRenderer.drawPlanes(
+                render,
+                session.getAllTrackables(Plane.class),
+                camera.getDisplayOrientedPose(),
+                projectionMatrix);
         // Update lighting parameters in the shader
         updateLightEstimation(frame.getLightEstimate(), viewMatrix);
 
@@ -768,6 +778,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR);
     }
 
+    /*
     //per ogni frame gestisco un tap, intanto la frequenza dei tap è piu bassa del frame rate
     private void handleTap(Frame frame, Camera camera) {
         MotionEvent tap = tapHelper.poll();
@@ -802,8 +813,46 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 break;
             }
         }
-    }
+    }*/
 
+
+    //per ogni frame gestisco un tap, intanto la frequenza dei tap è piu bassa del frame rate
+    private void handleTap(Frame frame, Camera camera) {
+        MotionEvent tap = tapHelper.poll();
+        if (tap != null && camera.getTrackingState() == TrackingState.TRACKING) {
+            List<HitResult> hitResultList;
+            hitResultList = frame.hitTest(tap);
+            for (HitResult hit : hitResultList) {
+                //if ARCore is tracking anchor points then place the anchor
+                Trackable trackable = hit.getTrackable();
+                if ((trackable instanceof Plane
+                        && ((Plane) trackable).isPoseInPolygon(hit.getHitPose())
+                        && (PlaneRenderer.calculateDistanceToPlane(hit.getHitPose(), camera.getPose()) > 0))
+                        || (trackable instanceof Point
+                        && ((Point) trackable).getOrientationMode()
+                        == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL)
+                        || (trackable instanceof InstantPlacementPoint)) {
+                    if (anchors.size() >= MAX_3D_OBJECTS) {
+                        anchors.get(0).detach();
+                        anchors.remove(0);
+                    }
+                    //aggiungere un'Ancora indica ad ARCore che deve mantere traccia di questa posizione nello spazio
+                    anchors.add(hit.createAnchor());
+                    //estraggo da quest'ultima ancora la sua model matrix (posizione nel mondo reale)
+                    float[] mm = new float[16];
+                    anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
+                    saveTapLocationAnchor(tap, mm);//salvo modelmatrix dell ancora
+
+                    // For devices that support the Depth API, shows a dialog to suggest enabling
+                    // depth-based occlusion. This dialog needs to be spawned on the UI thread.
+                    this.runOnUiThread(this::showOcclusionDialogIfNeeded);
+                    // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, or
+                    // Instant Placement Point.
+                    break;
+                }
+            }
+        }
+    }
 
     private void loadTaps(Frame frame, Camera camera){//load saved taps
         Log.i("MIOINFO LOADINGGGGGGGGGGGGGG", "TAPSSSSSSSSSSSSSSS");
@@ -971,9 +1020,11 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     //configurazione della sessione ARCore
     private void configureSession() {
         Config config = session.getConfig();
-        config.setLightEstimationMode(Config.LightEstimationMode.ENVIRONMENTAL_HDR);
+        config.setLightEstimationMode(Config.LightEstimationMode.ENVIRONMENTAL_HDR);//realistic
+        //config.setLightEstimationMode(Config.LightEstimationMode.AMBIENT_INTENSITY);
         //non utilizzo il tracking dei piani però questo è un esempio su come indicare di trackare per esempio solo quelli orizzontali
-        config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL);
+        config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
+        config.setFocusMode(Config.FocusMode.AUTO);//autofocus with camera
         if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
             config.setDepthMode(Config.DepthMode.AUTOMATIC);
         } else {
