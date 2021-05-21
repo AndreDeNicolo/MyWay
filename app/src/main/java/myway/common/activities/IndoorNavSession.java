@@ -1,7 +1,5 @@
 package myway.common.activities;
 
-import android.content.Context;
-import android.content.ContextWrapper;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.Resources;
@@ -78,14 +76,8 @@ import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException;
 import com.myway.myway.R;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -104,6 +96,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final float END_POINT_MODEL_SCALE = 0.01f;
     private static final float END_POINT_ROTATION_SPEED_DEGREES = 10;
     private static final float DIRECTION_ANGLE_ERROR = 15;//initial angle detected by the device is wrong by 20 degrees
+
+    //HANDLER INSTRUCTION
+    private final int WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
+    private final int WHAT_CALCULATED_DISTANCE = 2;
 
     private static final String PLACE_MESSAGE = "Tocca una superficie per piazzare un indicatore di percorso.";
     private static final String FOLLOW_MESSAGE = "Segui il percorso indicato";
@@ -192,7 +188,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     private final int MAX_3D_OBJECTS = 1000;
     private TextView cameraCoordTextView;
-    private TextView deviceRotationTextView;
+    private TextView measureInfoTextView;
     private ArrayList<SavedTap> savedTaps = new ArrayList<>();
     private ArrayList<SavedTap> loadedTaps = new ArrayList<>();
     private boolean tapsLoaded;
@@ -203,7 +199,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private String qrDir;//string passed from previous activity (createway or findway)
     private String pathName;
 
-    private Handler coordstextHandler;
+    private Handler guiHandler;
     //gyroscope attributes
     private SensorManager sensorManager;
 
@@ -214,6 +210,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private FileManager fileManager;
 
     private boolean measuring;
+    private ArrayList<Pose> measurePoints;//contains points to calculate distance between them
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -221,9 +218,11 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         surfaceView = findViewById(R.id.surfaceview);
         cameraCoordTextView = findViewById(R.id.cameracoordstext);
         cameraCoordTextView.setTextColor(Color.RED);
-        deviceRotationTextView = findViewById(R.id.devicerotationtext);
-        deviceRotationTextView.setTextColor(Color.GREEN);
+        measureInfoTextView = findViewById(R.id.measureinfo);
+        measureInfoTextView.setTextColor(Color.RED);
+        measureInfoTextView.setText("Misura Distanza : off");
         displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
+        setUpGuiHandler();
         initSensors();//initialize orientationHelper and sensorManager
         // Set up touch listener.
         tapsLoaded = false;
@@ -239,18 +238,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         depthSettings.onCreate(this);
         instantPlacementSettings.onCreate(this);
-        coordstextHandler = new Handler(){
-            @Override
-            public void handleMessage(@NonNull Message msg) {
-                super.handleMessage(msg);
-                //call to update textview with camera coords is not in the main thread so i have to handle the request in the main thread of the activity
-                updateCameraCoordsTextView();
-            }
-        };
 
         instantPlacementSettings.setInstantPlacementEnabled(true);
         measuring = false;
-
+        measurePoints = new ArrayList<>();
         //get sessiontype info passed from previous activity
         Bundle extras = getIntent().getExtras();
         qrDir = extras.getString("qrCode");//qr code scanned
@@ -281,6 +272,22 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 });
     }
 
+
+    private void setUpGuiHandler(){
+        guiHandler = new Handler(){
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                super.handleMessage(msg);
+                //call to update textview with camera coords is not in the main thread so i have to handle the request in the main thread of the activity
+                if(msg.what == WHAT_UPDATE_CAMERA_TEXT_COORDS){
+                    updateCameraCoordsTextView();
+                }
+                if(msg.what == WHAT_CALCULATED_DISTANCE){
+                    Toast.makeText(IndoorNavSession.this, "distanza tra i 2 punti : "+(double)msg.obj, Toast.LENGTH_SHORT).show();
+                }
+            }
+        };
+    }
     //nascondere alcune voci del menù a seconda del tipo di sessione (se sto visualizzando un percorso salvato nascondo)
     private void hideMenuItems(Menu m){
         MenuItem depthsb = m.findItem(R.id.depth_settings);
@@ -372,6 +379,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
             builder.show();
             return true;
+        }
+        if(item.getItemId() == R.id.measure){
+            toggleMeasureMode();
         }
         return false;
     }
@@ -840,31 +850,36 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         anchors.remove(0);
                     }
                     //aggiungere un'Ancora indica ad ARCore che deve mantere traccia di questa posizione nello spazio
-                    anchors.add(hit.createAnchor());
-                    //mm matrice model dell oggetto, rotat
-                    float[] mm = new float[16];
-                    //camRotationMatrix matrice contiene rotazione rotazione solo sull'asse y della camera
-                    float[] camRotationMatrix = new float[16];
-                    //matrice finale che andrò a salvare contiene moltiplicazione tra matrice model dell oggetto per la rotazione della camera, per dargli il giusto orientamento
-                    float[] finalM = new float[16];
-                    //quaternions per creare una matrice di rotazione estratti dalla Pose della camera e i quaternions x z w azzerati per lasciare solo quello y e creare matrice con makeRotation di rotazione solo attorno y
-                    float[] rotQuaternions = new float[4];
-                    rotQuaternions = camera.getPose().getRotationQuaternion();
-                    rotQuaternions[0] = 0;
-                    rotQuaternions[2] = 0;
-                    rotQuaternions[3] = 0;
-                    camera.getPose().makeRotation(rotQuaternions).toMatrix(camRotationMatrix, 0);
-                    //estraggo da quest'ultima ancora piazzata la sua model matrix (posizione nel mondo reale)
-                    anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
-                    Matrix.multiplyMM(finalM, 0, mm, 0, camRotationMatrix, 0);
-                    saveTapLocationAnchor(tap, finalM);//salvo modelmatrix dell ancora
+                    if(measuring == true){
+                        addPointToMeasure(hit.createAnchor().getPose());
+                    }
+                    else{
+                        anchors.add(hit.createAnchor());
+                        //mm matrice model dell oggetto, rotat
+                        float[] mm = new float[16];
+                        //camRotationMatrix matrice contiene rotazione rotazione solo sull'asse y della camera
+                        float[] camRotationMatrix = new float[16];
+                        //matrice finale che andrò a salvare contiene moltiplicazione tra matrice model dell oggetto per la rotazione della camera, per dargli il giusto orientamento
+                        float[] finalM = new float[16];
+                        //quaternions per creare una matrice di rotazione estratti dalla Pose della camera e i quaternions x z w azzerati per lasciare solo quello y e creare matrice con makeRotation di rotazione solo attorno y
+                        float[] rotQuaternions = new float[4];
+                        rotQuaternions = camera.getPose().getRotationQuaternion();
+                        rotQuaternions[0] = 0;
+                        rotQuaternions[2] = 0;
+                        rotQuaternions[3] = 0;
+                        camera.getPose().makeRotation(rotQuaternions).toMatrix(camRotationMatrix, 0);
+                        //estraggo da quest'ultima ancora piazzata la sua model matrix (posizione nel mondo reale)
+                        anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
+                        Matrix.multiplyMM(finalM, 0, mm, 0, camRotationMatrix, 0);
+                        saveTapLocationAnchor(tap, finalM);//salvo modelmatrix dell ancora
 
-                    // For devices that support the Depth API, shows a dialog to suggest enabling
-                    // depth-based occlusion. This dialog needs to be spawned on the UI thread.
-                    this.runOnUiThread(this::showOcclusionDialogIfNeeded);
-                    // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, or
-                    // Instant Placement Point.
-                    break;
+                        // For devices that support the Depth API, shows a dialog to suggest enabling
+                        // depth-based occlusion. This dialog needs to be spawned on the UI thread.
+                        this.runOnUiThread(this::showOcclusionDialogIfNeeded);
+                        // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, or
+                        // Instant Placement Point.
+                        break;
+                    }
                 }
             }
         }
@@ -1080,9 +1095,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         return Math.sqrt(Math.pow(cameraPose.tx()-anchorModelMatrix[12], 2)+ Math.pow(cameraPose.ty()-anchorModelMatrix[13], 2)+ Math.pow(cameraPose.tz()-anchorModelMatrix[14], 2));
     }
 
+    private double calculateDistance(Pose p1, Pose p2){
+        return Math.sqrt(Math.pow(p1.tx()-p2.tx(), 2)+ Math.pow(p1.ty()-p2.ty(), 2)+ Math.pow(p1.tz()-p2.tz(), 2));
+    }
+
     private void updateCameraCoordsTextView(){
         cameraCoordTextView.setText("x: "+cameraPose.tx()+" y:"+cameraPose.ty()+" z:"+cameraPose.tz());
-        deviceRotationTextView.setText("Device Rotation Roll : "+orientationHelper.getAzimuth());
     }
 
     //metodo per scalare l'ultima ancora (se la sessione e quella per seguire un percorso)
@@ -1096,7 +1114,31 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         cameraPose = camera.getPose();
         Message m = Message.obtain();
         m.what = 1;
-        coordstextHandler.sendMessage(m);
+        guiHandler.sendMessage(m);
     }
 
+    private void toggleMeasureMode(){
+        if(measuring){
+            measuring = false;
+            measureInfoTextView.setTextColor(Color.RED);
+            measurePoints.clear();
+        }
+        else{
+            measuring = true;
+            measureInfoTextView.setTextColor(Color.GREEN);
+        }
+    }
+
+    private void addPointToMeasure(Pose pointPose){
+        if(measurePoints.size() < 2)
+            measurePoints.add(pointPose);
+        if(measurePoints.size() == 2){
+            double distance = calculateDistance(measurePoints.get(0), measurePoints.get(1));
+            toggleMeasureMode();
+            Message m = Message.obtain();
+            m.what = WHAT_CALCULATED_DISTANCE;
+            m.obj = distance;
+            guiHandler.sendMessage(m);
+        }
+    }
 }
