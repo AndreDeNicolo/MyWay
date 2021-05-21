@@ -212,7 +212,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private TextToSpeechHelper textToSpeechHelper;
 
     private FileManager fileManager;
-    private double lastTime = System.currentTimeMillis();
+
+    private boolean measuring;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -248,6 +249,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         };
 
         instantPlacementSettings.setInstantPlacementEnabled(true);
+        measuring = false;
 
         //get sessiontype info passed from previous activity
         Bundle extras = getIntent().getExtras();
@@ -623,12 +625,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         //avvisare la sessione ARCore che la  grandezza della view è cambiata quindi bisogna aggiustare la perspective matrix e il background video
         displayRotationHelper.updateSessionIfNeeded(session);
 
-        /////////////angolo get orientation//////////////
-        if((System.currentTimeMillis() - lastTime) > 1000 ){
-            Log.i("ANGOLOOOOOOOOOOOOOOOOOO PITCHHHHHHHHH:", Float.toString(orientationHelper.getAzimuth()));
-            lastTime = System.currentTimeMillis();
-        }
-
         //ottengo il frame corrente dalla sessione ARCore.
         Frame frame;
         try {
@@ -754,6 +750,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         render.draw(virtualObjectMeshEndPoint, virtualObjectShaderEndPoint, virtualSceneFramebuffer);
                     }
                     else {//ancore non finali
+                        /*codice per visualizzare oggetti che diventano piu grandi o piccoli a seconda della distanza
                         float[] resizedModelMatrix = new float[16];
                         resizedModelMatrix = modelMatrix.clone();//clono la matrice originale del modello 3D
                         float scale = 1f - (float)(cameraAnchorDistance/(renderDistance));//man mano che mi avvicino al modello 3D lo renderizzo più grande
@@ -764,6 +761,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, resizedModelMatrix, 0);
                         Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
                         // Update shader properties and draw
+                        virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
+                        virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
+                        render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
+                        */
+                        Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
+                        Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
                         virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
                         virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
                         render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
@@ -838,10 +841,23 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     }
                     //aggiungere un'Ancora indica ad ARCore che deve mantere traccia di questa posizione nello spazio
                     anchors.add(hit.createAnchor());
-                    //estraggo da quest'ultima ancora la sua model matrix (posizione nel mondo reale)
+                    //mm matrice model dell oggetto, rotat
                     float[] mm = new float[16];
+                    //camRotationMatrix matrice contiene rotazione rotazione solo sull'asse y della camera
+                    float[] camRotationMatrix = new float[16];
+                    //matrice finale che andrò a salvare contiene moltiplicazione tra matrice model dell oggetto per la rotazione della camera, per dargli il giusto orientamento
+                    float[] finalM = new float[16];
+                    //quaternions per creare una matrice di rotazione estratti dalla Pose della camera e i quaternions x z w azzerati per lasciare solo quello y e creare matrice con makeRotation di rotazione solo attorno y
+                    float[] rotQuaternions = new float[4];
+                    rotQuaternions = camera.getPose().getRotationQuaternion();
+                    rotQuaternions[0] = 0;
+                    rotQuaternions[2] = 0;
+                    rotQuaternions[3] = 0;
+                    camera.getPose().makeRotation(rotQuaternions).toMatrix(camRotationMatrix, 0);
+                    //estraggo da quest'ultima ancora piazzata la sua model matrix (posizione nel mondo reale)
                     anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
-                    saveTapLocationAnchor(tap, mm);//salvo modelmatrix dell ancora
+                    Matrix.multiplyMM(finalM, 0, mm, 0, camRotationMatrix, 0);
+                    saveTapLocationAnchor(tap, finalM);//salvo modelmatrix dell ancora
 
                     // For devices that support the Depth API, shows a dialog to suggest enabling
                     // depth-based occlusion. This dialog needs to be spawned on the UI thread.
@@ -852,6 +868,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 }
             }
         }
+    }
+
+    private void measureDistanceBetweenTwoPoints(){
+
     }
 
     private void loadTaps(Frame frame, Camera camera){//load saved taps
@@ -1048,7 +1068,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         int metaState = tap.getMetaState();
         //rotate matrix according to camera rotation
         //Matrix.rotateM(newAnchorModelMatrix, 0, -sensorAngle, 0, 1, 0);
-        Matrix.rotateM(newAnchorModelMatrix, 0, -orientationHelper.getAzimuth() - DIRECTION_ANGLE_ERROR, 0, 1, 0);
+        //Matrix.rotateM(newAnchorModelMatrix, 0, -orientationHelper.getAzimuth() - DIRECTION_ANGLE_ERROR, 0, 1, 0);
+        //rotate saved object by 180 degrees due to the fact thats it is rotated by default
+        Matrix.rotateM(newAnchorModelMatrix, 0, 180, 0, 1, 0);
         SavedTap ts = new SavedTap(xcoord, ycoord, downTime, eventTime, action, metaState, newAnchorModelMatrix);//save also the anchor model matrix = coords in the real world
         savedTaps.add(ts);
     }
