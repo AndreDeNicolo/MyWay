@@ -33,7 +33,6 @@
         <activity android:name="myway.common.activities.MainMenu">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -49,9 +48,8 @@
             android:configChanges="orientation|screenSize"
             android:exported="true"
             android:screenOrientation="locked"
-            android:theme="@style/Theme.AppCompat.NoActionBar">
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar.FullScreen">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
                 <action android:name="android.intent.action.TTS_SERVICE"></action>
             </intent-filter>
         </activity> <!-- Indicates whether "Google Play Services for AR" (ARCore) is "required" or "optional". -->

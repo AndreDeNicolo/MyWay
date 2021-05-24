@@ -98,8 +98,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final float DIRECTION_ANGLE_ERROR = 15;//initial angle detected by the device is wrong by 20 degrees
 
     //HANDLER INSTRUCTION
-    private final int WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
-    private final int WHAT_CALCULATED_DISTANCE = 2;
+    private final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
+    private final int HANDLER_WHAT_CALCULATED_DISTANCE = 2;
 
     private static final String PLACE_MESSAGE = "Tocca una superficie per piazzare un indicatore di percorso.";
     private static final String FOLLOW_MESSAGE = "Segui il percorso indicato";
@@ -279,10 +279,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             public void handleMessage(@NonNull Message msg) {
                 super.handleMessage(msg);
                 //call to update textview with camera coords is not in the main thread so i have to handle the request in the main thread of the activity
-                if(msg.what == WHAT_UPDATE_CAMERA_TEXT_COORDS){
+                if(msg.what == HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS){
                     updateCameraCoordsTextView();
                 }
-                if(msg.what == WHAT_CALCULATED_DISTANCE){
+                if(msg.what == HANDLER_WHAT_CALCULATED_DISTANCE){
                     Toast.makeText(IndoorNavSession.this, "distanza tra i 2 punti : "+(double)msg.obj, Toast.LENGTH_SHORT).show();
                 }
             }
@@ -382,6 +382,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
         if(item.getItemId() == R.id.measure){
             toggleMeasureMode();
+        }
+        if(item.getItemId() == R.id.speakPathLength){
+            calculateSpeechTotalPathLength();
         }
         return false;
     }
@@ -885,10 +888,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
     }
 
-    private void measureDistanceBetweenTwoPoints(){
-
-    }
-
     private void loadTaps(Frame frame, Camera camera){//load saved taps
         Log.i("MIOINFO LOADINGGGGGGGGGGGGGG", "TAPSSSSSSSSSSSSSSS");
         for(int i = 0; i < loadedTaps.size(); i++){//recreate taps
@@ -899,7 +898,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 Log.i("MIOINFO N HIT", Float.toString(tap.getX()));
                 for (HitResult hit : hitResultList) {
                     ////////////////////
-
                     // Adding an Anchor tells ARCore that it should track this position in
                     // space. This anchor is created on the Plane to place the 3D model
                     // in the correct position relative both to the world and to the plane.
@@ -1038,7 +1036,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         //
         // You can read more details about the math here:
         // https://google.github.io/filament/Filament.html#annex/sphericalharmonics
-
         if (coefficients.length != 9 * 3) {
             throw new IllegalArgumentException(
                     "The given coefficients array must be of length 27 (3 components per 9 coefficients");
@@ -1099,6 +1096,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         return Math.sqrt(Math.pow(p1.tx()-p2.tx(), 2)+ Math.pow(p1.ty()-p2.ty(), 2)+ Math.pow(p1.tz()-p2.tz(), 2));
     }
 
+    private double calculateDistanceMatrix(float[] m1, float[] m2){
+        return Math.sqrt(Math.pow(m1[12]-m2[12], 2)+ Math.pow(m1[13]-m2[13], 2)+ Math.pow(m1[14]-m2[14], 2));
+    }
+
     private void updateCameraCoordsTextView(){
         cameraCoordTextView.setText("x: "+cameraPose.tx()+" y:"+cameraPose.ty()+" z:"+cameraPose.tz());
     }
@@ -1136,9 +1137,19 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             double distance = calculateDistance(measurePoints.get(0), measurePoints.get(1));
             toggleMeasureMode();
             Message m = Message.obtain();
-            m.what = WHAT_CALCULATED_DISTANCE;
+            m.what = HANDLER_WHAT_CALCULATED_DISTANCE;
             m.obj = distance;
             guiHandler.sendMessage(m);
         }
+    }
+
+    //path lenght (meters) for the text to speech
+    private void calculateSpeechTotalPathLength(){
+        DecimalFormat df = new DecimalFormat("#.00");
+        double pathLength = 0;
+        for(int i=0; i < loadedTaps.size()-1; i++){
+            pathLength += calculateDistanceMatrix(loadedTaps.get(i).getModelMatrix(), loadedTaps.get(i+1).getModelMatrix());
+        }
+        textToSpeechHelper.speak("Lunghezza totale del percorso : "+df.format(pathLength)+" metri");
     }
 }
