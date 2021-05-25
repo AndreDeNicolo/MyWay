@@ -31,7 +31,7 @@ public class FileManager {
     }
 
     //method to save path in a file, within the qr code directory
-    public void savePath(ArrayList<SavedTap> savedTaps){
+    public void savePath(ArrayList<SavedAnchor> savedAnchors){
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle("Nome percorso creato");
 
@@ -46,7 +46,7 @@ public class FileManager {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 filePathName = (String)input.getText().toString();
-                saveTrackedAnchorsPerQr(filePathName, savedTaps);
+                saveTrackedAnchorsPerQr(filePathName, savedAnchors);
             }
         });
         builder.setNegativeButton("Indietro", new DialogInterface.OnClickListener() {
@@ -60,7 +60,7 @@ public class FileManager {
     }
 
     //save path created in a directory associated with qr code scanned
-    private void saveTrackedAnchorsPerQr(String fileName, ArrayList<SavedTap> savedTaps){
+    private void saveTrackedAnchorsPerQr(String fileName, ArrayList<SavedAnchor> savedAnchors){
         File qrDirectory = createQrDirectory();
         File outputFile = new File(qrDirectory, fileName);
         //saving path
@@ -69,7 +69,7 @@ public class FileManager {
         try{
             fileOutputStream = new FileOutputStream(outputFile.getAbsolutePath());
             objectOutputStream = new ObjectOutputStream(fileOutputStream);
-            objectOutputStream.writeObject(savedTaps);//savedTaps arratlist wich contains saved coord of the anchor taps
+            objectOutputStream.writeObject(savedAnchors);//savedAnchors arratlist wich contains saved coord of the anchor taps
             objectOutputStream.close();
             fileOutputStream.close();
         } catch (FileNotFoundException e) {
@@ -92,8 +92,8 @@ public class FileManager {
     }
 
     //load anchors saved previously in qr folder
-    public ArrayList<SavedTap> loadAnchors(String qrDir, String pathName){
-        ArrayList<SavedTap> loadedTaps = new ArrayList<>();
+    public ArrayList<SavedAnchor> loadAnchors(String qrDir, String pathName){
+        ArrayList<SavedAnchor> loadedTaps = new ArrayList<>();
 
         ObjectInputStream objectInputStream;
         ContextWrapper contextWrapper = new ContextWrapper(context.getApplicationContext());
@@ -103,7 +103,7 @@ public class FileManager {
         try {
             FileInputStream fileInputStream = new FileInputStream(inputFile);
             objectInputStream = new ObjectInputStream(fileInputStream);
-            loadedTaps = (ArrayList<SavedTap>) objectInputStream.readObject();
+            loadedTaps = (ArrayList<SavedAnchor>) objectInputStream.readObject();
             Log.i("MIOINFO TAPS CARICATI", Integer.toString(loadedTaps.size()));
             objectInputStream.close();
             fileInputStream.close();

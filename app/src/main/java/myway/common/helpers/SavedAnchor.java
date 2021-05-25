@@ -4,7 +4,7 @@ package myway.common.helpers;
 import java.io.Serializable;
 
 //this class save taps information
-public class SavedTap implements Serializable {
+public class SavedAnchor implements Serializable {
     private float xcoord;
     private float ycoord;
     private long  downTime;
@@ -13,7 +13,7 @@ public class SavedTap implements Serializable {
     private int metaState;
     private float[] modelMatrix = new float[16];
 
-    public SavedTap(float xcoord, float ycoord, long downTime, long eventTime, int action, int metaState, float[] modelMatrix) {
+    public SavedAnchor(float xcoord, float ycoord, long downTime, long eventTime, int action, int metaState, float[] modelMatrix) {
         this.xcoord = xcoord;
         this.ycoord = ycoord;
         this.downTime = downTime;

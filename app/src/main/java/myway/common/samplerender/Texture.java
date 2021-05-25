@@ -17,6 +17,9 @@ package myway.common.samplerender;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES30;
 import android.util.Log;
@@ -166,6 +169,44 @@ public class Texture implements Closeable {
         bitmap.recycle();
       }
     }
+    return texture;
+  }
+
+  public static Texture createFromString(
+          SampleRender render, String text, WrapMode wrapMode, ColorFormat colorFormat){
+
+    Texture texture = new Texture(render, Target.TEXTURE_2D, wrapMode);
+    //text bitmap creation
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setTextSize(20);
+    paint.setColor(Color.RED);
+    paint.setTextAlign(Paint.Align.LEFT);
+    float baseline = -paint.ascent(); // ascent() is negative
+    int width = (int) (paint.measureText(text) + 0.5f); // round
+    int height = (int) (baseline + paint.descent() + 0.5f);
+    Bitmap image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(image);
+    canvas.drawText(text, 0, baseline, paint);
+
+    ByteBuffer buffer = ByteBuffer.allocateDirect(image.getByteCount());
+    image.copyPixelsToBuffer(buffer);
+    buffer.rewind();
+
+    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture.getTextureId());
+    GLError.maybeThrowGLException("Failed to bind texture", "glBindTexture");
+    GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D,
+            /*level=*/ 0,
+            colorFormat.glesEnum,
+            image.getWidth(),
+            image.getHeight(),
+            /*border=*/ 0,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            buffer);
+    GLError.maybeThrowGLException("Failed to populate texture data", "glTexImage2D");
+    GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D);
+    GLError.maybeThrowGLException("Failed to generate mipmaps", "glGenerateMipmap");
     return texture;
   }
 

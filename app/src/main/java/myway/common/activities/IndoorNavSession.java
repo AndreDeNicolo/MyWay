@@ -51,8 +51,7 @@ import myway.common.helpers.DisplayRotationHelper;
 import myway.common.helpers.FileManager;
 import myway.common.helpers.FullScreenHelper;
 import myway.common.helpers.InstantPlacementSettings;
-import myway.common.helpers.OrientationHelper;
-import myway.common.helpers.SavedTap;
+import myway.common.helpers.SavedAnchor;
 import myway.common.helpers.SnackbarHelper;
 import myway.common.helpers.TapHelper;
 import myway.common.helpers.TextToSpeechHelper;
@@ -67,6 +66,8 @@ import myway.common.samplerender.VertexBuffer;
 import myway.common.samplerender.arcore.BackgroundRenderer;
 import myway.common.samplerender.arcore.PlaneRenderer;
 import myway.common.samplerender.arcore.SpecularCubemapFilter;
+import myway.common.samplerender.labelrender.LabelRender;
+
 import com.google.ar.core.exceptions.CameraNotAvailableException;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.core.exceptions.UnavailableApkTooOldException;
@@ -100,6 +101,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     //HANDLER INSTRUCTION
     private final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
     private final int HANDLER_WHAT_CALCULATED_DISTANCE = 2;
+    private final int HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE = 3;
+    private final int HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE = 4;
 
     private static final String PLACE_MESSAGE = "Tocca una superficie per piazzare un indicatore di percorso.";
     private static final String FOLLOW_MESSAGE = "Segui il percorso indicato";
@@ -124,6 +127,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     private static final int CUBEMAP_RESOLUTION = 16;
     private static final int CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES = 32;
+
+    private static boolean LABEL_PLACEMENT_ON = false;
 
     // Rendering. The Renderers are created here, and initialized when the GL surface is created.
     private GLSurfaceView surfaceView;
@@ -165,6 +170,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private long lastPointCloudTimestamp = 0;
 
     // Virtual object (ARCore pawn)
+    private Texture textTexture;
     private Mesh virtualObjectMesh;
     private Shader virtualObjectShader;
     private Mesh virtualObjectMeshEndPoint;
@@ -189,8 +195,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private final int MAX_3D_OBJECTS = 1000;
     private TextView cameraCoordTextView;
     private TextView measureInfoTextView;
-    private ArrayList<SavedTap> savedTaps = new ArrayList<>();
-    private ArrayList<SavedTap> loadedTaps = new ArrayList<>();
+    private ArrayList<SavedAnchor> savedAnchors = new ArrayList<>();
+    private ArrayList<SavedAnchor> loadedAnchors = new ArrayList<>();
     private boolean tapsLoaded;
     private double renderDistance;
     private Pose cameraPose;
@@ -200,20 +206,20 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private String pathName;
 
     private Handler guiHandler;
-    //gyroscope attributes
-    private SensorManager sensorManager;
-
-    private OrientationHelper orientationHelper;
 
     private TextToSpeechHelper textToSpeechHelper;
 
     private FileManager fileManager;
+
+    private LabelRender labelRenderer;
+    private boolean label;
 
     private boolean measuring;
     private ArrayList<Pose> measurePoints;//contains points to calculate distance between them
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        label = false;
         setContentView(R.layout.activity_indoor_nav_session);
         surfaceView = findViewById(R.id.surfaceview);
         cameraCoordTextView = findViewById(R.id.cameracoordstext);
@@ -223,14 +229,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         measureInfoTextView.setText("Misura Distanza : off");
         displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
         setUpGuiHandler();
-        initSensors();//initialize orientationHelper and sensorManager
         // Set up touch listener.
         tapsLoaded = false;
         renderDistance = 4;
 
         tapHelper = new TapHelper(/*context=*/ this);
         surfaceView.setOnTouchListener(tapHelper);
-
         // Set up renderer.
         render = new SampleRender(surfaceView, this, getAssets());
 
@@ -250,8 +254,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         fileManager = new FileManager(this, qrDir);
         if(sessionType.equals(MainMenu.SESSION_FIND)){
             Toast.makeText(this, "Path caricata : "+ qrDir, Toast.LENGTH_SHORT).show();
-            //loadTrackedAnchors();
-            loadedTaps = fileManager.loadAnchors(qrDir, pathName);
+            loadedAnchors = fileManager.loadAnchors(qrDir, pathName);
+            scale3DObjectEndPoint();//riduco le dimensioni dell'oggetto 3D end point
         }
 
         textToSpeechHelper = new TextToSpeechHelper(this);
@@ -283,7 +287,14 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     updateCameraCoordsTextView();
                 }
                 if(msg.what == HANDLER_WHAT_CALCULATED_DISTANCE){
-                    Toast.makeText(IndoorNavSession.this, "distanza tra i 2 punti : "+(double)msg.obj, Toast.LENGTH_SHORT).show();
+                    DecimalFormat df = new DecimalFormat("0.000");
+                    Toast.makeText(IndoorNavSession.this, "distanza tra i 2 punti : "+df.format((double)msg.obj), Toast.LENGTH_SHORT).show();
+                }
+                if(msg.what == HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE){
+                    Toast.makeText(IndoorNavSession.this, "Clicca dove vuoi piazzare il segnale", Toast.LENGTH_SHORT).show();
+                }
+                if(msg.what == HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE){
+                    Toast.makeText(IndoorNavSession.this, "Piazzamento segnali disattivato", Toast.LENGTH_SHORT).show();
                 }
             }
         };
@@ -299,12 +310,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         savePath.setVisible(false);
     }
 
-    //inizializzazione sensori
-    private void initSensors(){
-        sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
-        orientationHelper = new OrientationHelper();
-    }
-
     //menu opzioni settaggio click
     protected boolean settingsMenuClick(MenuItem item) {
         if (item.getItemId() == R.id.depth_settings) {
@@ -312,18 +317,18 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             return true;
         }
         if(item.getItemId() == R.id.saveQrDir){
-            fileManager.savePath(savedTaps);
+            fileManager.savePath(savedAnchors);
             return true;
         }
         if(item.getItemId() == R.id.undo){
             if(!anchors.isEmpty()){
                 anchors.remove(anchors.size()-1);
-                savedTaps.remove(savedTaps.size()-1);
+                savedAnchors.remove(savedAnchors.size()-1);
             }
         }
         if(item.getItemId() == R.id.distancesetting){
             DecimalFormat df = new DecimalFormat("#.00");
-            textToSpeechHelper.speak(df.format(distanceCameraAnchor(cameraPose, loadedTaps.get(loadedTaps.size()-1).getModelMatrix()))+"metri al termine del percorso");
+            textToSpeechHelper.speak(df.format(distanceCameraAnchor(cameraPose, loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix()))+"metri al termine del percorso");
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Set render anchors distance");
 
@@ -386,13 +391,75 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         if(item.getItemId() == R.id.speakPathLength){
             calculateSpeechTotalPathLength();
         }
+        if(item.getItemId() == R.id.placeLabel){
+            if(!LABEL_PLACEMENT_ON){
+                LABEL_PLACEMENT_ON = true;
+                notifyHandler(HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE);
+            }
+            else{
+                LABEL_PLACEMENT_ON = false;
+                notifyHandler(HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE);
+            }
+        }
         return false;
     }
 
+    private void notifyHandler(int what){
+        Message m = Message.obtain();
+        m.what = what;
+        guiHandler.sendMessage(m);
+    }
+
+    private void notifyHandler(int what, Object obj){
+        Message m = Message.obtain();
+        m.what = what;
+        m.obj = obj;
+        guiHandler.sendMessage(m);
+    }
+
+    //metodo per notificare l'handler di cambiare le coordinate della camera nel mondo reale a schermo (ImageVIew)
+    private void updateMessageCameraCoords(Camera camera){
+        cameraPose = camera.getPose();
+        notifyHandler(HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS);
+    }
+
+    private void toggleMeasureMode(){
+        if(measuring){
+            measuring = false;
+            measureInfoTextView.setTextColor(Color.RED);
+            measurePoints.clear();
+        }
+        else{
+            measuring = true;
+            measureInfoTextView.setTextColor(Color.GREEN);
+        }
+    }
+
+    private void addPointToMeasure(Pose pointPose){
+        if(measurePoints.size() < 2)
+            measurePoints.add(pointPose);
+        if(measurePoints.size() == 2){
+            double distance = calculateDistance(measurePoints.get(0), measurePoints.get(1));
+            toggleMeasureMode();
+            notifyHandler(HANDLER_WHAT_CALCULATED_DISTANCE, distance);
+        }
+    }
+
+    //path lenght (meters) for the text to speech
+    private void calculateSpeechTotalPathLength(){
+        DecimalFormat df = new DecimalFormat("#.00");
+        double pathLength = 0;
+        for(int i = 0; i < loadedAnchors.size()-1; i++){
+            pathLength += calculateDistanceMatrix(loadedAnchors.get(i).getModelMatrix(), loadedAnchors.get(i+1).getModelMatrix());
+        }
+        textToSpeechHelper.speak("Lunghezza totale del percorso : "+df.format(pathLength)+" metri");
+    }
+
+    //////////////////////////////////////////////
+    //ARSESSION/ACTIVITYMANAGEMENT/OPEMGL STAFF
+    /////////////////////////////////////////////
     @Override
     protected void onDestroy() {
-        sensorManager.unregisterListener(orientationHelper.getAccelerometerListener());
-        sensorManager.unregisterListener(orientationHelper.getMagnetometerListener());
         if (session != null) {
             //guardare lifecycle
             //chiusura della sessione di arcore per rilasciare le risorse utilizzate
@@ -407,9 +474,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     @Override
     protected void onResume() {
         super.onResume();
-        //registrazione sensori utilizzati
-        sensorManager.registerListener(orientationHelper.getAccelerometerListener(), sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_FASTEST);
-        sensorManager.registerListener(orientationHelper.getMagnetometerListener(), sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD), SensorManager.SENSOR_DELAY_FASTEST);
         ///////
         //controllo se arcore risulta installato sul dispositivo
         if (session == null) {
@@ -472,9 +536,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     @Override
     public void onPause() {
         super.onPause();
-        //unregistrare sensori precedentemente registrati
-        sensorManager.unregisterListener(orientationHelper.getAccelerometerListener());
-        sensorManager.unregisterListener(orientationHelper.getMagnetometerListener());
         if (session != null) {
             // Note that the order matters - GLSurfaceView is paused first so that it does not try
             // to query the session. If Session is paused before GLSurfaceView, GLSurfaceView may
@@ -492,6 +553,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         FullScreenHelper.setFullScreenOnWindowFocusChanged(this, hasFocus);
     }
 
+    //inizializzo modelli 3D vari e il renderer delle label
     @Override
     public void onSurfaceCreated(SampleRender render) {
         //inizializzazione degli oggetti da renderizzare. Include lettura degli shaders e dei modelli 3D
@@ -499,6 +561,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             planeRenderer = new PlaneRenderer(render);
             backgroundRenderer = new BackgroundRenderer(render);
             virtualSceneFramebuffer = new Framebuffer(render, /*width=*/ 1, /*height=*/ 1);
+
+
 
             cubemapFilter =
                     new SpecularCubemapFilter(
@@ -534,6 +598,11 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     GLES30.GL_HALF_FLOAT,
                     buffer);
             GLError.maybeThrowGLException("Failed to populate DFG texture", "glTexImage2D");
+
+            textTexture = Texture.createFromString(render,
+                    "PORTA",
+                    Texture.WrapMode.CLAMP_TO_EDGE,
+                    Texture.ColorFormat.SRGB);
 
             // Point cloud
             pointCloudShader =
@@ -593,7 +662,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                             "models/arrowtexture.png",
                             Texture.WrapMode.CLAMP_TO_EDGE,
                             Texture.ColorFormat.LINEAR);
-            virtualObjectMesh = Mesh.createFromAsset(render, "models/arrownavigation.obj");
+            virtualObjectMesh = Mesh.createFromAsset(render, "models/arrow.obj");
             virtualObjectShader =
                     Shader.createFromAssets(
                             render,
@@ -610,6 +679,11 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                             .setTexture("u_RoughnessMetallicAmbientOcclusionTexture", virtualObjectPbrTexture)
                             .setTexture("u_Cubemap", cubemapFilter.getFilteredCubemapTexture())
                             .setTexture("u_DfgTexture", dfgTexture);
+
+            //initialize the label renderer
+            labelRenderer = new LabelRender();
+            labelRenderer.onSurfaceCreated(render);
+
         } catch (IOException e) {
             messageSnackbarHelper.showError(this, "Failed to read a required asset file: " + e);
         }
@@ -732,14 +806,11 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f);
-        //if is "findway" session load path previously created
-        if(!sessionType.equals(MainMenu.SESSION_CREATE) && !tapsLoaded){//if this session is note the creating path session and anchors not created yet
-            loadTaps(frame, camera);
-        }
-        for (int i = 0; i < anchors.size(); i++) {
-            if(sessionType.equals(MainMenu.SESSION_CREATE)){
+
+        if(sessionType.equals(MainMenu.SESSION_CREATE)){//sessione di creazione percorso
+            for (int i = 0; i < savedAnchors.size(); i++) {
                 //carico la model matrix ottenuta dall'ancora che voglio renderizzare
-                modelMatrix = savedTaps.get(i).getModelMatrix();
+                modelMatrix = savedAnchors.get(i).getModelMatrix();
                 //scalo il modello 3D alla grandezza desiderata
                 Matrix.scaleM(modelMatrix, 0, MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
                 //ottengo le matrici per la visualizzazione 3D
@@ -749,12 +820,14 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
                 render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
             }
-            else{
-                modelMatrix = loadedTaps.get(i).getModelMatrix();
+        }
+        else{//sessione percorso caricato
+            for (int i = 0; i < loadedAnchors.size(); i++) {
+                modelMatrix = loadedAnchors.get(i).getModelMatrix();
                 //calcolo la distanza della camera dall'ancora che devo renderizzare, a seconda della distanza decido se renderizzare e come
                 double cameraAnchorDistance = distanceCameraAnchor(camera.getPose(), modelMatrix);
                 if(cameraAnchorDistance < renderDistance){
-                    if(i == anchors.size()-1){//ultima ancora salvata la visualizzo con il modello 3D del punto finale
+                    if(i == loadedAnchors.size()-1){//ultima ancora salvata la visualizzo con il modello 3D del punto finale
                         Matrix.rotateM(modelMatrix,0, END_POINT_ROTATION_SPEED_DEGREES, 0, 1, 0);
                         Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
                         Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
@@ -763,21 +836,21 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         render.draw(virtualObjectMeshEndPoint, virtualObjectShaderEndPoint, virtualSceneFramebuffer);
                     }
                     else {//ancore non finali
-                        /*codice per visualizzare oggetti che diventano piu grandi o piccoli a seconda della distanza
-                        float[] resizedModelMatrix = new float[16];
-                        resizedModelMatrix = modelMatrix.clone();//clono la matrice originale del modello 3D
-                        float scale = 1f - (float)(cameraAnchorDistance/(renderDistance));//man mano che mi avvicino al modello 3D lo renderizzo più grande
-                        if(cameraAnchorDistance > 0 && cameraAnchorDistance < 2)
-                            Matrix.scaleM(resizedModelMatrix, 0, 1, 1, 1);
-                        else
-                            Matrix.scaleM(resizedModelMatrix, 0, scale, scale, scale);
-                        Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, resizedModelMatrix, 0);
-                        Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                        // Update shader properties and draw
-                        virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
-                        virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
-                        render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
-                        */
+                            /*codice per visualizzare oggetti che diventano piu grandi o piccoli a seconda della distanza
+                            float[] resizedModelMatrix = new float[16];
+                            resizedModelMatrix = modelMatrix.clone();//clono la matrice originale del modello 3D
+                            float scale = 1f - (float)(cameraAnchorDistance/(renderDistance));//man mano che mi avvicino al modello 3D lo renderizzo più grande
+                            if(cameraAnchorDistance > 0 && cameraAnchorDistance < 2)
+                                Matrix.scaleM(resizedModelMatrix, 0, 1, 1, 1);
+                            else
+                                Matrix.scaleM(resizedModelMatrix, 0, scale, scale, scale);
+                            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, resizedModelMatrix, 0);
+                            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
+                            // Update shader properties and draw
+                            virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
+                            virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
+                            render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
+                            */
                         Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
                         Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
                         virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
@@ -785,51 +858,15 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
                     }
                 }
-
             }
-
+        }
+        if(!anchors.isEmpty()){
+            //labelRenderer.draw(render, modelViewProjectionMatrix.clone(),anchors.get(0).getPose(), camera.getPose(), "DIO CANE");
         }
 
         //compongo la scena virtuale con il background della camera
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR);
     }
-
-    /*
-    //per ogni frame gestisco un tap, intanto la frequenza dei tap è piu bassa del frame rate
-    private void handleTap(Frame frame, Camera camera) {
-        MotionEvent tap = tapHelper.poll();
-        if (tap != null && camera.getTrackingState() == TrackingState.TRACKING) {
-            List<HitResult> hitResultList;
-            if (instantPlacementSettings.isInstantPlacementEnabled()) {
-                hitResultList =
-                        frame.hitTestInstantPlacement(tap.getX(), tap.getY(), APPROXIMATE_DISTANCE_METERS);
-            } else {
-                hitResultList = frame.hitTest(tap);
-            }
-            for (HitResult hit : hitResultList) {
-                //se un punto di instant placemente è stato toccato creo un ancora.
-                //numero massimo di ancore (per la gestione delle risorse
-                if (anchors.size() >= MAX_3D_OBJECTS) {
-                    anchors.get(0).detach();
-                    anchors.remove(0);
-                }
-
-                //aggiungere un'Ancora indica ad ARCore che deve mantere traccia di questa posizione nello spazio
-                anchors.add(hit.createAnchor());
-                //estraggo da quest'ultima ancora la sua model matrix (posizione nel mondo reale)
-                float[] mm = new float[16];
-                anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
-                saveTapLocationAnchor(tap, mm);//salvo modelmatrix dell ancora
-
-                // For devices that support the Depth API, shows a dialog to suggest enabling
-                // depth-based occlusion. This dialog needs to be spawned on the UI thread.
-                this.runOnUiThread(this::showOcclusionDialogIfNeeded);
-                // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, or
-                // Instant Placement Point.
-                break;
-            }
-        }
-    }*/
 
 
     //per ogni frame gestisco un tap, intanto la frequenza dei tap è piu bassa del frame rate
@@ -888,39 +925,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
     }
 
-    private void loadTaps(Frame frame, Camera camera){//load saved taps
-        Log.i("MIOINFO LOADINGGGGGGGGGGGGGG", "TAPSSSSSSSSSSSSSSS");
-        for(int i = 0; i < loadedTaps.size(); i++){//recreate taps
-            MotionEvent tap = MotionEvent.obtain(loadedTaps.get(i).getDownTime(), loadedTaps.get(i).getEventTime(), loadedTaps.get(i).getAction(), loadedTaps.get(i).getXcoord(), loadedTaps.get(i).getYcoord(), loadedTaps.get(i).getMetaState());
-            if (tap != null) {
-                List<HitResult> hitResultList;
-                hitResultList = frame.hitTestInstantPlacement(tap.getX(), tap.getY(), APPROXIMATE_DISTANCE_METERS);
-                Log.i("MIOINFO N HIT", Float.toString(tap.getX()));
-                for (HitResult hit : hitResultList) {
-                    ////////////////////
-                    // Adding an Anchor tells ARCore that it should track this position in
-                    // space. This anchor is created on the Plane to place the 3D model
-                    // in the correct position relative both to the world and to the plane.
-                    //here i want to save the tap on a file so next i can recreate anchors
-                    anchors.add(hit.createAnchor());
-                    // For devices that support the Depth API, shows a dialog to suggest enabling
-                    // depth-based occlusion. This dialog needs to be spawned on the UI thread.
-                    this.runOnUiThread(this::showOcclusionDialogIfNeeded);
-                    // Hits are sorted by depth. Consider only closest hit on a plane, Oriented Point, or
-                    // Instant Placement Point.
-                    break;
-
-                }
-            }
-        }
-        //ho caricato tutti i taps
-        if(anchors.size() == loadedTaps.size()){
-            tapsLoaded = !tapsLoaded;
-            //scalo l ultima ancora (oggetto 3D finale)lo faccio qui così lo faccio solo una volta
-            scale3DObjectEndPoint();//scale the last 3d anchor dimension
-        }
-    }
-
+    //metodo gia presente di helloar sample
     private void showOcclusionDialogIfNeeded() {
         boolean isDepthSupported = session.isDepthModeSupported(Config.DepthMode.AUTOMATIC);
         if (!depthSettings.shouldShowDepthEnableDialog() || !isDepthSupported) {
@@ -944,6 +949,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 .show();
     }
 
+    //metodo gia presente di helloar sample
     private void launchDepthSettingsMenuDialog() {
         // Retrieves the current settings to show in the checkboxes.
         resetSettingsMenuDialogCheckboxes();
@@ -977,6 +983,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
     }
 
+    //metodo gia presente di helloar sample
     private void applySettingsMenuDialogCheckboxes() {
         depthSettings.setUseDepthForOcclusion(depthSettingsMenuDialogCheckboxes[0]);
         depthSettings.setDepthColorVisualizationEnabled(depthSettingsMenuDialogCheckboxes[1]);
@@ -993,6 +1000,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     }
 
     /** Update state based on the current frame's light estimation. */
+    //metodo gia presente di helloar sample
     private void updateLightEstimation(LightEstimate lightEstimate, float[] viewMatrix) {
         if (lightEstimate.getState() != LightEstimate.State.VALID) {
             virtualObjectShader.setBool("u_LightEstimateIsValid", false);
@@ -1012,6 +1020,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         cubemapFilter.update(lightEstimate.acquireEnvironmentalHdrCubeMap());
     }
 
+    //metodo gia presente di helloar sample
     private void updateMainLight(float[] direction, float[] intensity, float[] viewMatrix) {
         // We need the direction in a vec4 with 0.0 as the final component to transform it to view space
         worldLightDirection[0] = direction[0];
@@ -1022,6 +1031,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         virtualObjectShader.setVec3("u_LightIntensity", intensity);
     }
 
+    //metodo gia presente di helloar sample
     private void updateSphericalHarmonicsCoefficients(float[] coefficients) {
         // Pre-multiply the spherical harmonics coefficients before passing them to the shader. The
         // constants in sphericalHarmonicFactors were derived from three terms:
@@ -1069,6 +1079,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
         session.configure(config);
     }
+
+
+    ///////////////////////////////////////////////
+    //SAVE/LOAD ANCHORS/3DCALCULATION METHODS
+    //////////////////////////////////////////////
+
     //method to save each anchor placement tap coors
     //example how to recreate a motionevent : https://www.generacodice.com/cn/articolo/1334664/Android%3A-How-to-create-a-MotionEvent
     private void saveTapLocationAnchor(MotionEvent tap, float[] newAnchorModelMatrix){
@@ -1078,13 +1094,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         long eventTime = tap.getEventTime();
         int action = tap.getAction();
         int metaState = tap.getMetaState();
-        //rotate matrix according to camera rotation
-        //Matrix.rotateM(newAnchorModelMatrix, 0, -sensorAngle, 0, 1, 0);
-        //Matrix.rotateM(newAnchorModelMatrix, 0, -orientationHelper.getAzimuth() - DIRECTION_ANGLE_ERROR, 0, 1, 0);
-        //rotate saved object by 180 degrees due to the fact thats it is rotated by default
         Matrix.rotateM(newAnchorModelMatrix, 0, 180, 0, 1, 0);
-        SavedTap ts = new SavedTap(xcoord, ycoord, downTime, eventTime, action, metaState, newAnchorModelMatrix);//save also the anchor model matrix = coords in the real world
-        savedTaps.add(ts);
+        SavedAnchor ts = new SavedAnchor(xcoord, ycoord, downTime, eventTime, action, metaState, newAnchorModelMatrix);//save also the anchor model matrix = coords in the real world
+        savedAnchors.add(ts);
     }
 
     //metodo per calcolare distanza tra camera e un oggetto 3D
@@ -1101,55 +1113,14 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     }
 
     private void updateCameraCoordsTextView(){
-        cameraCoordTextView.setText("x: "+cameraPose.tx()+" y:"+cameraPose.ty()+" z:"+cameraPose.tz());
+        DecimalFormat df = new DecimalFormat("0.00");
+        cameraCoordTextView.setText("x: "+df.format(cameraPose.tx())+" y:"+df.format(cameraPose.ty())+" z:"+df.format(cameraPose.tz()));
     }
 
     //metodo per scalare l'ultima ancora (se la sessione e quella per seguire un percorso)
     private void scale3DObjectEndPoint(){
         Matrix.scaleM(
-                loadedTaps.get(loadedTaps.size()-1).getModelMatrix(), 0, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE);
+                loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix(), 0, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE);
     }
 
-    //metodo per notificare l'handler di cambiare le coordinate della camera nel mondo reale a schermo (ImageVIew)
-    private void updateMessageCameraCoords(Camera camera){
-        cameraPose = camera.getPose();
-        Message m = Message.obtain();
-        m.what = 1;
-        guiHandler.sendMessage(m);
-    }
-
-    private void toggleMeasureMode(){
-        if(measuring){
-            measuring = false;
-            measureInfoTextView.setTextColor(Color.RED);
-            measurePoints.clear();
-        }
-        else{
-            measuring = true;
-            measureInfoTextView.setTextColor(Color.GREEN);
-        }
-    }
-
-    private void addPointToMeasure(Pose pointPose){
-        if(measurePoints.size() < 2)
-            measurePoints.add(pointPose);
-        if(measurePoints.size() == 2){
-            double distance = calculateDistance(measurePoints.get(0), measurePoints.get(1));
-            toggleMeasureMode();
-            Message m = Message.obtain();
-            m.what = HANDLER_WHAT_CALCULATED_DISTANCE;
-            m.obj = distance;
-            guiHandler.sendMessage(m);
-        }
-    }
-
-    //path lenght (meters) for the text to speech
-    private void calculateSpeechTotalPathLength(){
-        DecimalFormat df = new DecimalFormat("#.00");
-        double pathLength = 0;
-        for(int i=0; i < loadedTaps.size()-1; i++){
-            pathLength += calculateDistanceMatrix(loadedTaps.get(i).getModelMatrix(), loadedTaps.get(i+1).getModelMatrix());
-        }
-        textToSpeechHelper.speak("Lunghezza totale del percorso : "+df.format(pathLength)+" metri");
-    }
 }

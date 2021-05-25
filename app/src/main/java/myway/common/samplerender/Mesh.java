@@ -15,6 +15,7 @@
  */
 package myway.common.samplerender;
 
+import android.graphics.Bitmap;
 import android.opengl.GLES30;
 import android.util.Log;
 
