@@ -18,6 +18,8 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 
+import myway.common.activities.IndoorNavSession;
+
 //class used to load and save paths
 public class FileManager {
 
@@ -47,6 +49,7 @@ public class FileManager {
             public void onClick(DialogInterface dialog, int which) {
                 filePathName = (String)input.getText().toString();
                 saveTrackedAnchorsPerQr(filePathName, savedAnchors);
+                IndoorNavSession.notifyHandler(IndoorNavSession.HANDLER_WAHT_SAVED_MESSAGE);
             }
         });
         builder.setNegativeButton("Indietro", new DialogInterface.OnClickListener() {

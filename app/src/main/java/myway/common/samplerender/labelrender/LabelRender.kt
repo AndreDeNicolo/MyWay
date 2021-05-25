@@ -119,4 +119,40 @@ class LabelRender {
       .setTexture("uTexture", cache.get(render, label))
     render.draw(mesh, shader)
   }
+
+  fun draw(
+          render: SampleRender,
+          viewProjectionMatrix: FloatArray,
+          cameraPose: Pose,
+          label: String
+  ) {
+    labelOrigin[0] = -0.05f
+    labelOrigin[1] = 0f
+    labelOrigin[2] = -0.05f
+    shader
+            .setMat4("u_ViewProjection", viewProjectionMatrix)
+            .setVec3("u_LabelOrigin", labelOrigin)
+            .setTexture("uTexture", cache.get(render, label))
+    render.draw(mesh, shader)
+  }
+
+  fun draw(
+          render: SampleRender,
+          viewProjectionMatrix: FloatArray,
+          modelViewMatrix: FloatArray,
+          cameraPose: Pose,
+          label: String
+  ) {
+    labelOrigin[0] = -0.05f
+    labelOrigin[1] = 0f
+    labelOrigin[2] = -0.05f
+    shader
+            .setMat4("u_ViewProjection", viewProjectionMatrix)
+            .setMat4("u_ModelView", modelViewMatrix)
+            .setVec3("u_LabelOrigin", labelOrigin)
+            .setVec3("u_CameraPos", cameraPose.translation)
+            .setTexture("uTexture", cache.get(render, label))
+    render.draw(mesh, shader)
+  }
+
 }

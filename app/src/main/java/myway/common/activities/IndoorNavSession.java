@@ -4,8 +4,6 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.Color;
-import android.hardware.Sensor;
-import android.hardware.SensorManager;
 import android.media.Image;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
@@ -14,7 +12,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.text.InputType;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
@@ -96,13 +93,15 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final float MODEL_SCALE = 1f;
     private static final float END_POINT_MODEL_SCALE = 0.01f;
     private static final float END_POINT_ROTATION_SPEED_DEGREES = 10;
+    private static final float LABEL_SCALE = 5f;
     private static final float DIRECTION_ANGLE_ERROR = 15;//initial angle detected by the device is wrong by 20 degrees
 
     //HANDLER INSTRUCTION
-    private final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
-    private final int HANDLER_WHAT_CALCULATED_DISTANCE = 2;
-    private final int HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE = 3;
-    private final int HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE = 4;
+    public static final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
+    public static final int HANDLER_WHAT_CALCULATED_DISTANCE = 2;
+    public static final int HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE = 3;
+    public static final int HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE = 4;
+    public static final int HANDLER_WAHT_SAVED_MESSAGE = 5;
 
     private static final String PLACE_MESSAGE = "Tocca una superficie per piazzare un indicatore di percorso.";
     private static final String FOLLOW_MESSAGE = "Segui il percorso indicato";
@@ -129,6 +128,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final int CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES = 32;
 
     private static boolean LABEL_PLACEMENT_ON = false;
+    private LabelRender labelRenderer;
+    private String label;
 
     // Rendering. The Renderers are created here, and initialized when the GL surface is created.
     private GLSurfaceView surfaceView;
@@ -169,8 +170,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     // was not changed.  Do this using the timestamp since we can't compare PointCloud objects.
     private long lastPointCloudTimestamp = 0;
 
-    // Virtual object (ARCore pawn)
-    private Texture textTexture;
+    // oggetti 3D
     private Mesh virtualObjectMesh;
     private Shader virtualObjectShader;
     private Mesh virtualObjectMeshEndPoint;
@@ -205,21 +205,18 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private String qrDir;//string passed from previous activity (createway or findway)
     private String pathName;
 
-    private Handler guiHandler;
+    public static Handler guiHandler;
 
     private TextToSpeechHelper textToSpeechHelper;
 
     private FileManager fileManager;
 
-    private LabelRender labelRenderer;
-    private boolean label;
 
     private boolean measuring;
     private ArrayList<Pose> measurePoints;//contains points to calculate distance between them
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        label = false;
         setContentView(R.layout.activity_indoor_nav_session);
         surfaceView = findViewById(R.id.surfaceview);
         cameraCoordTextView = findViewById(R.id.cameracoordstext);
@@ -295,6 +292,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 }
                 if(msg.what == HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE){
                     Toast.makeText(IndoorNavSession.this, "Piazzamento segnali disattivato", Toast.LENGTH_SHORT).show();
+                }
+                if(msg.what == HANDLER_WAHT_SAVED_MESSAGE){
+                    Toast.makeText(IndoorNavSession.this, "Percorso salvato sotto il QRCode : "+qrDir, Toast.LENGTH_SHORT).show();
                 }
             }
         };
@@ -394,7 +394,31 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         if(item.getItemId() == R.id.placeLabel){
             if(!LABEL_PLACEMENT_ON){
                 LABEL_PLACEMENT_ON = true;
-                notifyHandler(HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE);
+                AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                builder.setTitle("Cosa segnalare?");
+
+                // Set up the input
+                final EditText input = new EditText(this);
+                // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
+                input.setInputType(InputType.TYPE_CLASS_TEXT);
+                builder.setView(input);
+
+                // Set up the buttons
+                builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        label = (String)input.getText().toString();
+                        notifyHandler(HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE);
+                    }
+                });
+                builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.cancel();
+                    }
+                });
+
+                builder.show();
             }
             else{
                 LABEL_PLACEMENT_ON = false;
@@ -404,13 +428,13 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         return false;
     }
 
-    private void notifyHandler(int what){
+    public static void notifyHandler(int what){
         Message m = Message.obtain();
         m.what = what;
         guiHandler.sendMessage(m);
     }
 
-    private void notifyHandler(int what, Object obj){
+    public static void notifyHandler(int what, Object obj){
         Message m = Message.obtain();
         m.what = what;
         m.obj = obj;
@@ -562,8 +586,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             backgroundRenderer = new BackgroundRenderer(render);
             virtualSceneFramebuffer = new Framebuffer(render, /*width=*/ 1, /*height=*/ 1);
 
-
-
             cubemapFilter =
                     new SpecularCubemapFilter(
                             render, CUBEMAP_RESOLUTION, CUBEMAP_NUMBER_OF_IMPORTANCE_SAMPLES);
@@ -598,11 +620,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     GLES30.GL_HALF_FLOAT,
                     buffer);
             GLError.maybeThrowGLException("Failed to populate DFG texture", "glTexImage2D");
-
-            textTexture = Texture.createFromString(render,
-                    "PORTA",
-                    Texture.WrapMode.CLAMP_TO_EDGE,
-                    Texture.ColorFormat.SRGB);
 
             // Point cloud
             pointCloudShader =
@@ -784,24 +801,27 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
 
 
-        // Visualize tracked points.
-        // Use try-with-resources to automatically release the point cloud.
-        try (PointCloud pointCloud = frame.acquirePointCloud()) {
-            if (pointCloud.getTimestamp() > lastPointCloudTimestamp) {
-                pointCloudVertexBuffer.set(pointCloud.getPoints());
-                lastPointCloudTimestamp = pointCloud.getTimestamp();
+        //il render dei punti trackati e dei piani trackati lo faccio solo se sono nella modalità creazione
+        if(sessionType.equals(MainMenu.SESSION_CREATE)){
+            // Visualize tracked points.
+            // Use try-with-resources to automatically release the point cloud.
+            try (PointCloud pointCloud = frame.acquirePointCloud()) {
+                if (pointCloud.getTimestamp() > lastPointCloudTimestamp) {
+                    pointCloudVertexBuffer.set(pointCloud.getPoints());
+                    lastPointCloudTimestamp = pointCloud.getTimestamp();
+                }
+                Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0);
+                pointCloudShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
+                render.draw(pointCloudMesh, pointCloudShader);
             }
-            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0);
-            pointCloudShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
-            render.draw(pointCloudMesh, pointCloudShader);
-        }
 
-        planeRenderer.drawPlanes(
-                render,
-                session.getAllTrackables(Plane.class),
-                camera.getDisplayOrientedPose(),
-                projectionMatrix);
-        // Update lighting parameters in the shader
+            planeRenderer.drawPlanes(
+                    render,
+                    session.getAllTrackables(Plane.class),
+                    camera.getDisplayOrientedPose(),
+                    projectionMatrix);
+            // Update lighting parameters in the shader
+        }
         updateLightEstimation(frame.getLightEstimate(), viewMatrix);
 
         // Visualize anchors created by touch.
@@ -809,16 +829,27 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         if(sessionType.equals(MainMenu.SESSION_CREATE)){//sessione di creazione percorso
             for (int i = 0; i < savedAnchors.size(); i++) {
-                //carico la model matrix ottenuta dall'ancora che voglio renderizzare
-                modelMatrix = savedAnchors.get(i).getModelMatrix();
-                //scalo il modello 3D alla grandezza desiderata
-                Matrix.scaleM(modelMatrix, 0, MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
-                //ottengo le matrici per la visualizzazione 3D
-                Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
-                Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
-                virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
-                render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
+                if(savedAnchors.get(i).getAnchorType() == SavedAnchor.ANCHOR_TYPE_LABEL){
+                    modelMatrix = savedAnchors.get(i).getModelMatrix();
+                    float[] scaledModelMatrix = new float[16];
+                    scaledModelMatrix = modelMatrix.clone();
+                    Matrix.scaleM(scaledModelMatrix, 0, LABEL_SCALE, LABEL_SCALE, LABEL_SCALE);
+                    Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, scaledModelMatrix, 0);
+                    Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
+                    labelRenderer.draw(render, modelViewProjectionMatrix, camera.getPose(), savedAnchors.get(i).getLabel());
+                }
+                else{
+                    //carico la model matrix ottenuta dall'ancora che voglio renderizzare
+                    modelMatrix = savedAnchors.get(i).getModelMatrix();
+                    //scalo il modello 3D alla grandezza desiderata
+                    Matrix.scaleM(modelMatrix, 0, MODEL_SCALE , MODEL_SCALE, MODEL_SCALE);
+                    //ottengo le matrici per la visualizzazione 3D
+                    Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
+                    Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
+                    virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
+                    virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
+                    render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
+                }
             }
         }
         else{//sessione percorso caricato
@@ -827,7 +858,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 //calcolo la distanza della camera dall'ancora che devo renderizzare, a seconda della distanza decido se renderizzare e come
                 double cameraAnchorDistance = distanceCameraAnchor(camera.getPose(), modelMatrix);
                 if(cameraAnchorDistance < renderDistance){
-                    if(i == loadedAnchors.size()-1){//ultima ancora salvata la visualizzo con il modello 3D del punto finale
+                    if(i == loadedAnchors.size()-1 && loadedAnchors.get(i).getAnchorType() == SavedAnchor.ANCHOR_TYPE_3D_OBJECT){//ultima ancora salvata la visualizzo con il modello 3D del punto finale
                         Matrix.rotateM(modelMatrix,0, END_POINT_ROTATION_SPEED_DEGREES, 0, 1, 0);
                         Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
                         Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
@@ -836,26 +867,21 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         render.draw(virtualObjectMeshEndPoint, virtualObjectShaderEndPoint, virtualSceneFramebuffer);
                     }
                     else {//ancore non finali
-                            /*codice per visualizzare oggetti che diventano piu grandi o piccoli a seconda della distanza
-                            float[] resizedModelMatrix = new float[16];
-                            resizedModelMatrix = modelMatrix.clone();//clono la matrice originale del modello 3D
-                            float scale = 1f - (float)(cameraAnchorDistance/(renderDistance));//man mano che mi avvicino al modello 3D lo renderizzo più grande
-                            if(cameraAnchorDistance > 0 && cameraAnchorDistance < 2)
-                                Matrix.scaleM(resizedModelMatrix, 0, 1, 1, 1);
-                            else
-                                Matrix.scaleM(resizedModelMatrix, 0, scale, scale, scale);
-                            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, resizedModelMatrix, 0);
+                        if(loadedAnchors.get(i).getAnchorType() == SavedAnchor.ANCHOR_TYPE_LABEL){
+                            float[] scaledModelMatrix = new float[16];
+                            scaledModelMatrix = modelMatrix.clone();
+                            Matrix.scaleM(scaledModelMatrix, 0, LABEL_SCALE, LABEL_SCALE, LABEL_SCALE);
+                            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, scaledModelMatrix, 0);
                             Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                            // Update shader properties and draw
+                            labelRenderer.draw(render, modelViewProjectionMatrix, camera.getPose(), loadedAnchors.get(i).getLabel());
+                        }
+                        else{
+                            Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
+                            Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
                             virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
                             virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
                             render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
-                            */
-                        Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
-                        Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                        virtualObjectShader.setMat4("u_ModelView", modelViewMatrix);
-                        virtualObjectShader.setMat4("u_ModelViewProjection", modelViewProjectionMatrix);
-                        render.draw(virtualObjectMesh, virtualObjectShader, virtualSceneFramebuffer);
+                        }
                     }
                 }
             }
@@ -911,7 +937,13 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         //estraggo da quest'ultima ancora piazzata la sua model matrix (posizione nel mondo reale)
                         anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
                         Matrix.multiplyMM(finalM, 0, mm, 0, camRotationMatrix, 0);
-                        saveTapLocationAnchor(tap, finalM);//salvo modelmatrix dell ancora
+                        if(LABEL_PLACEMENT_ON){
+                            Matrix.rotateM(finalM, 0, -45, 0, 1, 0);
+                            saveAnchor(finalM, SavedAnchor.ANCHOR_TYPE_LABEL, label);
+                        }
+                        else{
+                            saveAnchor(finalM, SavedAnchor.ANCHOR_TYPE_3D_OBJECT, null);//salvo modelmatrix dell ancora
+                        }
 
                         // For devices that support the Depth API, shows a dialog to suggest enabling
                         // depth-based occlusion. This dialog needs to be spawned on the UI thread.
@@ -1087,15 +1119,16 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     //method to save each anchor placement tap coors
     //example how to recreate a motionevent : https://www.generacodice.com/cn/articolo/1334664/Android%3A-How-to-create-a-MotionEvent
-    private void saveTapLocationAnchor(MotionEvent tap, float[] newAnchorModelMatrix){
-        float xcoord = tap.getX();
-        float ycoord = tap.getY();
-        long  downTime = tap.getDownTime();
-        long eventTime = tap.getEventTime();
-        int action = tap.getAction();
-        int metaState = tap.getMetaState();
-        Matrix.rotateM(newAnchorModelMatrix, 0, 180, 0, 1, 0);
-        SavedAnchor ts = new SavedAnchor(xcoord, ycoord, downTime, eventTime, action, metaState, newAnchorModelMatrix);//save also the anchor model matrix = coords in the real world
+    private void saveAnchor(float[] newAnchorModelMatrix, int anchorType, String label){
+        SavedAnchor ts = null;
+        if(anchorType == SavedAnchor.ANCHOR_TYPE_LABEL){
+            Matrix.rotateM(newAnchorModelMatrix, 0, 180, 0, 1, 0);
+            ts = new SavedAnchor(newAnchorModelMatrix, SavedAnchor.ANCHOR_TYPE_LABEL, label);//salvo le coordinate della label
+        }
+        if(anchorType == SavedAnchor.ANCHOR_TYPE_3D_OBJECT){
+            Matrix.rotateM(newAnchorModelMatrix, 0, 180, 0, 1, 0);
+            ts = new SavedAnchor(newAnchorModelMatrix, SavedAnchor.ANCHOR_TYPE_3D_OBJECT, null);//salvo la modelMatrix del modello 3D
+        }
         savedAnchors.add(ts);
     }
 
@@ -1119,8 +1152,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
     //metodo per scalare l'ultima ancora (se la sessione e quella per seguire un percorso)
     private void scale3DObjectEndPoint(){
-        Matrix.scaleM(
-                loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix(), 0, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE);
+        Matrix.scaleM(loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix(), 0, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE);
     }
 
 }

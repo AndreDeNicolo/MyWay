@@ -114,7 +114,6 @@ public class ScannerActivity extends Activity {
             public void receiveDetections(@NonNull Detector.Detections<Barcode> detections) {
                 SparseArray<Barcode> qrCodes = detections.getDetectedItems();
                 if(qrCodes.size() != 0 && !detected){
-                    Log.i("JFASNFASJfnajSNFAJNFSAJNFASJNFSAF", "JDFKSAFJSAFSAJKFBJAFBASKJFSBAKJASKJ");
                     if(sessionType.equals(MainMenu.SESSION_CREATE)){
                         String qrCodeScanned = qrCodes.valueAt(0).displayValue;
                         /*Message m = Message.obtain();

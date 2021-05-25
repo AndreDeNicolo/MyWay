@@ -26,6 +26,6 @@
       android:title="Lunghezza percorso"/>
   <item
       android:id="@+id/placeLabel"
-      android:title="Piazza un segnale"/>
+      android:title="Piazza un segnale (On/Off)"/>
 
 </menu>

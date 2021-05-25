@@ -5,47 +5,36 @@ import java.io.Serializable;
 
 //this class save taps information
 public class SavedAnchor implements Serializable {
-    private float xcoord;
-    private float ycoord;
-    private long  downTime;
-    private long eventTime;
-    private int action;
-    private int metaState;
+
+    public static final int ANCHOR_TYPE_3D_OBJECT = 0;
+    public static final int ANCHOR_TYPE_LABEL = 1;
+
+    private int anchorType;
+    //3d object attributes
     private float[] modelMatrix = new float[16];
 
-    public SavedAnchor(float xcoord, float ycoord, long downTime, long eventTime, int action, int metaState, float[] modelMatrix) {
-        this.xcoord = xcoord;
-        this.ycoord = ycoord;
-        this.downTime = downTime;
-        this.eventTime = eventTime;
-        this.action = action;
-        this.metaState = metaState;
+    //label attributes
+    private float[] viewProjectionMatrix = new float[16];
+    private String label;
+
+
+    //costruttore nel caso l'ancora salvata sia un oggetto 3D
+    public SavedAnchor(float[] modelMatrix, int anchorType, String label) {
+        this.anchorType = anchorType;
         this.modelMatrix = modelMatrix;
+        if(anchorType == ANCHOR_TYPE_LABEL)this.label = label;
+        else this.label = null;
     }
 
-    public float getXcoord() {
-        return xcoord;
-    }
-
-    public float getYcoord() {
-        return ycoord;
-    }
-
-    public long getDownTime() {
-        return downTime;
-    }
-
-    public long getEventTime() {
-        return eventTime;
-    }
-
-    public int getAction() {
-        return action;
-    }
-
-    public int getMetaState() {
-        return metaState;
-    }
-
+    //metodi oggetti 3D
     public float[] getModelMatrix(){ return modelMatrix; }
+
+    //metodi label
+    public int getAnchorType() {
+        return anchorType;
+    }
+
+    public String getLabel(){
+        return label;
+    }
 }
