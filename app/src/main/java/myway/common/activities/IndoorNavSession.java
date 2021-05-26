@@ -89,14 +89,14 @@ import java.util.List;
  */
 public class IndoorNavSession extends AppCompatActivity implements SampleRender.Renderer {
 
-    //MINE CONSTANTS
+    //COSTANTI VARIE
     private static final float MODEL_SCALE = 1f;
     private static final float END_POINT_MODEL_SCALE = 0.01f;
     private static final float END_POINT_ROTATION_SPEED_DEGREES = 10;
     private static final float LABEL_SCALE = 5f;
-    private static final float DIRECTION_ANGLE_ERROR = 15;//initial angle detected by the device is wrong by 20 degrees
+    private static final double LABEL_SIGNAL_WARN_DISTANCE = 5f;
 
-    //HANDLER INSTRUCTION
+    //ISTRUZIONI PER L'HANDLER
     public static final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
     public static final int HANDLER_WHAT_CALCULATED_DISTANCE = 2;
     public static final int HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE = 3;
@@ -181,7 +181,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private Texture dfgTexture;
     private SpecularCubemapFilter cubemapFilter;
 
-    // Temporary matrix allocated here to reduce number of allocations for each frame.
+    //Matrici temporanee allocate qui per non gravare piu avanti sulla stampa
     private float[] modelMatrix = new float[16];
     private  float[] viewMatrix = new float[16];
     private  float[] projectionMatrix = new float[16];
@@ -197,37 +197,30 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private TextView measureInfoTextView;
     private ArrayList<SavedAnchor> savedAnchors = new ArrayList<>();
     private ArrayList<SavedAnchor> loadedAnchors = new ArrayList<>();
-    private boolean tapsLoaded;
     private double renderDistance;
     private Pose cameraPose;
 
-    private String sessionType;
-    private String qrDir;//string passed from previous activity (createway or findway)
+    private String sessionType;//Stringa passata dall'attività precedente indicante il tipo di sessione chiamata (creazione o carica percorso)
+    private String qrDir;//Stringa passata dall'attività precedente contenente directory in cui salvare eventuali percorsi (è il qr scannerizzato)
     private String pathName;
 
-    public static Handler guiHandler;
+    public static Handler guiHandler;//handler per gestire varie richieste (costanti sopra)
 
-    private TextToSpeechHelper textToSpeechHelper;
+    private TextToSpeechHelper textToSpeechHelper;//helper per gestire un oggetto TextToSpeech
 
-    private FileManager fileManager;
+    private FileManager fileManager;//oggetto per gestire il salvataggio su file e il caricamento da file dei percorsi
 
+    private ImageButton undoButton;
 
     private boolean measuring;
-    private ArrayList<Pose> measurePoints;//contains points to calculate distance between them
+    private ArrayList<Pose> measurePoints;//contiene le Pose nello spazio tra cui poi calcolare la distanza
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_indoor_nav_session);
-        surfaceView = findViewById(R.id.surfaceview);
-        cameraCoordTextView = findViewById(R.id.cameracoordstext);
-        cameraCoordTextView.setTextColor(Color.RED);
-        measureInfoTextView = findViewById(R.id.measureinfo);
-        measureInfoTextView.setTextColor(Color.RED);
-        measureInfoTextView.setText("Misura Distanza : off");
-        displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
+        initGuiElements();
         setUpGuiHandler();
         // Set up touch listener.
-        tapsLoaded = false;
         renderDistance = 4;
 
         tapHelper = new TapHelper(/*context=*/ this);
@@ -239,11 +232,12 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
         depthSettings.onCreate(this);
         instantPlacementSettings.onCreate(this);
-
         instantPlacementSettings.setInstantPlacementEnabled(true);
+
         measuring = false;
         measurePoints = new ArrayList<>();
-        //get sessiontype info passed from previous activity
+
+        //estraggo i messaggi passatti dall'attività precedente
         Bundle extras = getIntent().getExtras();
         qrDir = extras.getString("qrCode");//qr code scanned
         pathName = extras.getString("pathName");
@@ -255,8 +249,30 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             scale3DObjectEndPoint();//riduco le dimensioni dell'oggetto 3D end point
         }
 
+        if(sessionType.equals(MainMenu.SESSION_FIND))undoButton.setVisibility(View.INVISIBLE);
         textToSpeechHelper = new TextToSpeechHelper(this);
+    }
 
+
+
+    private void initGuiElements(){
+        surfaceView = findViewById(R.id.surfaceview);
+        cameraCoordTextView = findViewById(R.id.cameracoordstext);
+        cameraCoordTextView.setTextColor(Color.RED);
+        measureInfoTextView = findViewById(R.id.measureinfo);
+        measureInfoTextView.setTextColor(Color.RED);
+        measureInfoTextView.setText("Misura Distanza : off");
+        displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
+        undoButton = findViewById(R.id.undo_button);
+        undoButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(!anchors.isEmpty()){
+                    anchors.remove(anchors.size()-1);
+                    savedAnchors.remove(savedAnchors.size()-1);
+                }
+            }
+        });
         ImageButton settingsButton = findViewById(R.id.settings_button);
         settingsButton.setOnClickListener(
                 new View.OnClickListener() {
@@ -272,7 +288,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     }
                 });
     }
-
 
     private void setUpGuiHandler(){
         guiHandler = new Handler(){
@@ -302,12 +317,14 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     //nascondere alcune voci del menù a seconda del tipo di sessione (se sto visualizzando un percorso salvato nascondo)
     private void hideMenuItems(Menu m){
         MenuItem depthsb = m.findItem(R.id.depth_settings);
-        MenuItem undob = m.findItem(R.id.undo);
         MenuItem savePath = m.findItem(R.id.saveQrDir);
+        MenuItem placeLab = m.findItem(R.id.placeLabel);
+        MenuItem measureB = m.findItem(R.id.measure);
 
         depthsb.setVisible(false);
-        undob.setVisible(false);
         savePath.setVisible(false);
+        placeLab.setVisible(false);
+        measureB.setVisible(false);
     }
 
     //menu opzioni settaggio click
@@ -320,24 +337,15 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             fileManager.savePath(savedAnchors);
             return true;
         }
-        if(item.getItemId() == R.id.undo){
-            if(!anchors.isEmpty()){
-                anchors.remove(anchors.size()-1);
-                savedAnchors.remove(savedAnchors.size()-1);
-            }
-        }
         if(item.getItemId() == R.id.distancesetting){
             DecimalFormat df = new DecimalFormat("#.00");
             textToSpeechHelper.speak(df.format(distanceCameraAnchor(cameraPose, loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix()))+"metri al termine del percorso");
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Set render anchors distance");
-
             // Set up the input
             final EditText input = new EditText(this);
-            // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
             input.setInputType(InputType.TYPE_CLASS_NUMBER);
             builder.setView(input);
-
             // Set up the buttons
             builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
                 @Override
@@ -399,7 +407,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
 
                 // Set up the input
                 final EditText input = new EditText(this);
-                // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
                 input.setInputType(InputType.TYPE_CLASS_TEXT);
                 builder.setView(input);
 
@@ -417,7 +424,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         dialog.cancel();
                     }
                 });
-
                 builder.show();
             }
             else{
@@ -467,16 +473,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             toggleMeasureMode();
             notifyHandler(HANDLER_WHAT_CALCULATED_DISTANCE, distance);
         }
-    }
-
-    //path lenght (meters) for the text to speech
-    private void calculateSpeechTotalPathLength(){
-        DecimalFormat df = new DecimalFormat("#.00");
-        double pathLength = 0;
-        for(int i = 0; i < loadedAnchors.size()-1; i++){
-            pathLength += calculateDistanceMatrix(loadedAnchors.get(i).getModelMatrix(), loadedAnchors.get(i+1).getModelMatrix());
-        }
-        textToSpeechHelper.speak("Lunghezza totale del percorso : "+df.format(pathLength)+" metri");
     }
 
     //////////////////////////////////////////////
@@ -800,6 +796,10 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             backgroundRenderer.drawBackground(render);
         }
 
+        //controllo distanze con eventuali segnali piazzati in creazione
+        if(sessionType.equals(MainMenu.SESSION_FIND)){
+            warnIfLabelIsNear(camera.getPose());
+        }
 
         //il render dei punti trackati e dei piani trackati lo faccio solo se sono nella modalità creazione
         if(sessionType.equals(MainMenu.SESSION_CREATE)){
@@ -824,7 +824,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
         updateLightEstimation(frame.getLightEstimate(), viewMatrix);
 
-        // Visualize anchors created by touch.
         render.clear(virtualSceneFramebuffer, 0f, 0f, 0f, 0f);
 
         if(sessionType.equals(MainMenu.SESSION_CREATE)){//sessione di creazione percorso
@@ -886,10 +885,6 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                 }
             }
         }
-        if(!anchors.isEmpty()){
-            //labelRenderer.draw(render, modelViewProjectionMatrix.clone(),anchors.get(0).getPose(), camera.getPose(), "DIO CANE");
-        }
-
         //compongo la scena virtuale con il background della camera
         backgroundRenderer.drawVirtualScene(render, virtualSceneFramebuffer, Z_NEAR, Z_FAR);
     }
@@ -1097,7 +1092,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         config.setLightEstimationMode(Config.LightEstimationMode.ENVIRONMENTAL_HDR);//realistic
         //config.setLightEstimationMode(Config.LightEstimationMode.AMBIENT_INTENSITY);
         //non utilizzo il tracking dei piani però questo è un esempio su come indicare di trackare per esempio solo quelli orizzontali
-        config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
+        config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL);
         config.setFocusMode(Config.FocusMode.AUTO);//autofocus with camera
         if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
             config.setDepthMode(Config.DepthMode.AUTOMATIC);
@@ -1155,4 +1150,31 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         Matrix.scaleM(loadedAnchors.get(loadedAnchors.size()-1).getModelMatrix(), 0, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE, END_POINT_MODEL_SCALE);
     }
 
+    //calcolo della lunghezza totale del percorso per poi notificarla vocalmente
+    private void calculateSpeechTotalPathLength(){
+        DecimalFormat df = new DecimalFormat("0.00");
+        double pathLength = 0;
+        pathLength += distanceCameraAnchor(cameraPose, loadedAnchors.get(0).getModelMatrix());//distanza dall'utente alla prima ancora
+        for(int i = 0; i < loadedAnchors.size()-1; i++){//calcolo distanza tra le varie ancore successive e le sommo
+            if(loadedAnchors.get(i).getAnchorType() == SavedAnchor.ANCHOR_TYPE_3D_OBJECT)//sommo solo tra frecce e non segnali
+                pathLength += calculateDistanceMatrix(loadedAnchors.get(i).getModelMatrix(), loadedAnchors.get(i+1).getModelMatrix());
+        }
+        textToSpeechHelper.speak("Lunghezza totale del percorso : "+df.format(pathLength)+" metri");
+    }
+
+    //metodo per avvisare l'utente che si sta avvicinando ad un segnale
+    //chiamabile solo se si è caricato un percorso
+    private void warnIfLabelIsNear(Pose cameraPose){//cameraPose rappresenta la posizione corrente dell' utente
+        for(int i = 0; i < loadedAnchors.size(); i++){
+            if(loadedAnchors.get(i).getAnchorType() == SavedAnchor.ANCHOR_TYPE_LABEL && !loadedAnchors.get(i).isWarned()) {//se l'ancora è un segnale
+                double calculatedDistance = distanceCameraAnchor(cameraPose, loadedAnchors.get(i).getModelMatrix());
+                if (calculatedDistance < LABEL_SIGNAL_WARN_DISTANCE) {
+                    loadedAnchors.get(i).setWarned();
+                    notifyHandler(HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE);
+                    DecimalFormat df = new DecimalFormat("0.00");
+                    textToSpeechHelper.speak("Attenzione ostacolo di tipo " + loadedAnchors.get(i).getLabel() + " a "+df.format(calculatedDistance)+" metri");
+                }
+            }
+        }
+    }
 }

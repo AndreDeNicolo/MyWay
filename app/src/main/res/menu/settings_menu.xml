@@ -16,9 +16,6 @@
       android:id="@+id/exit"
       android:title="Menu Principale"/>
   <item
-      android:id="@+id/undo"
-      android:title="Undo"/>
-  <item
       android:id="@+id/measure"
       android:title="Misura distanza tra 2 punti"/>
   <item

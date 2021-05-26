@@ -6,6 +6,8 @@ import android.widget.Toast;
 
 import java.util.Locale;
 
+
+//classe per gestire un TextToSpeech per mandare messaggi vocali
 public class TextToSpeechHelper {
 
     private Context context;
@@ -29,7 +31,7 @@ public class TextToSpeechHelper {
     }
 
     public void speak(String s){
-        textToSpeech.speak(s, TextToSpeech.QUEUE_FLUSH, null, "");
+        textToSpeech.speak(s, TextToSpeech.QUEUE_ADD, null, "");//QUEUE_ADD per aggiungere multipli messaggi vocali in coda e gestire piu richieste
     }
 
     public void shutdown(){

@@ -16,6 +16,7 @@ public class SavedAnchor implements Serializable {
     //label attributes
     private float[] viewProjectionMatrix = new float[16];
     private String label;
+    private boolean warned = false;//se la label è gia stata segnalata vocalmente o meno(uguale a false di default)
 
 
     //costruttore nel caso l'ancora salvata sia un oggetto 3D
@@ -36,5 +37,13 @@ public class SavedAnchor implements Serializable {
 
     public String getLabel(){
         return label;
+    }
+
+    public boolean isWarned(){
+        return warned;
+    }
+    public void setWarned(){
+        if(warned)warned=false;
+        else warned = true;
     }
 }
