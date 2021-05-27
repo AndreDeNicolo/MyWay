@@ -27,23 +27,20 @@ public class FileManager {
     private String qrCode;
     private String filePathName;
 
-    public FileManager(Context context, String qrCode){
+    public FileManager(Context context, String qrCode){//il qr code funziona come nome della cartella in cui poi saranno contenuti i percorsi salvati
         this.context = context;
         this.qrCode = qrCode;
     }
 
-    //method to save path in a file, within the qr code directory
+    //metodo per nominare il percorso che si vuole salvare e chiamare il metodo per il salvataggio
     public void savePath(ArrayList<SavedAnchor> savedAnchors){
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle("Nome percorso creato");
 
-        // Set up the input
         final EditText input = new EditText(context);
-        // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
         input.setInputType(InputType.TYPE_CLASS_TEXT);
         builder.setView(input);
 
-        // Set up the buttons
         builder.setPositiveButton("Salva", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
@@ -62,7 +59,7 @@ public class FileManager {
         builder.show();
     }
 
-    //save path created in a directory associated with qr code scanned
+    //metodo per salvare un percorso creato dall'utente (nome directory quella del qrcode)
     private void saveTrackedAnchorsPerQr(String fileName, ArrayList<SavedAnchor> savedAnchors){
         File qrDirectory = createQrDirectory();
         File outputFile = new File(qrDirectory, fileName);
@@ -72,7 +69,7 @@ public class FileManager {
         try{
             fileOutputStream = new FileOutputStream(outputFile.getAbsolutePath());
             objectOutputStream = new ObjectOutputStream(fileOutputStream);
-            objectOutputStream.writeObject(savedAnchors);//savedAnchors arratlist wich contains saved coord of the anchor taps
+            objectOutputStream.writeObject(savedAnchors);//savedAnchors arraylist che contiene le ancore salvate
             objectOutputStream.close();
             fileOutputStream.close();
         } catch (FileNotFoundException e) {
@@ -82,7 +79,7 @@ public class FileManager {
         }
     }
 
-    //create directory associated to a qr code scanned
+    //metodo per creare la directory associata ad un qr code (se questa non è mai stata creata)
     private File createQrDirectory(){
         ContextWrapper contextWrapper = new ContextWrapper(context.getApplicationContext());
         File appFilesDirectory = contextWrapper.getDir(context.getFilesDir().getName(), Context.MODE_PRIVATE);
@@ -94,7 +91,7 @@ public class FileManager {
         return qrDirectory;
     }
 
-    //load anchors saved previously in qr folder
+    //metodo per caricare un percorso precedentemente salvato (ricarico l'arraylist di ancore)
     public ArrayList<SavedAnchor> loadAnchors(String qrDir, String pathName){
         ArrayList<SavedAnchor> loadedTaps = new ArrayList<>();
 

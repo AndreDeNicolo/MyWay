@@ -82,11 +82,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-/**
- * This is a simple example that shows how to create an augmented reality (AR) application using the
- * ARCore API. The application will display any detected planes and will allow the user to tap on a
- * plane to place a 3D model.
- */
 public class IndoorNavSession extends AppCompatActivity implements SampleRender.Renderer {
 
     //COSTANTI VARIE
@@ -332,7 +327,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         measureB.setVisible(false);
     }
 
-    //menu opzioni settaggio click
+    //metodo per gestire le azioni da compiere a seconda della voce selezionata nel menu
     protected boolean settingsMenuClick(MenuItem item) {
         if (item.getItemId() == R.id.depth_settings) {
             launchDepthSettingsMenuDialog();
@@ -450,12 +445,14 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         return false;
     }
 
+    //metodo per mandare messaggi all'handler della classe (che puo aggiornare la GUI essendo nel main thread)
     public static void notifyHandler(int what){
         Message m = Message.obtain();
         m.what = what;
         guiHandler.sendMessage(m);
     }
 
+    //metodo per mandare messaggi all'handler della classe (che puo aggiornare la GUI essendo nel main thread)
     public static void notifyHandler(int what, Object obj){
         Message m = Message.obtain();
         m.what = what;
@@ -469,6 +466,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         notifyHandler(HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS);
     }
 
+    //metodo per attivare/disattivare la modalità per misurare la distanza tra 2 punti
     private void toggleMeasureMode(){
         if(measuring){
             measuring = false;
@@ -481,6 +479,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         }
     }
 
+    //metodo per aggiungere punti selezionati tra cui calcolare distanza
     private void addPointToMeasure(Pose pointPose){
         if(measurePoints.size() < 2)
             measurePoints.add(pointPose);
@@ -492,7 +491,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     }
 
     //////////////////////////////////////////////
-    //ARSESSION/ACTIVITYMANAGEMENT/OPEMGL STAFF
+    //Gestione della sessione ARCore, OpenGL ES e dell'activity
     /////////////////////////////////////////////
     @Override
     protected void onDestroy() {

@@ -9,7 +9,6 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.util.Log;
 import android.util.SparseArray;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -29,11 +28,13 @@ import java.io.File;
 
 public class ScannerActivity extends Activity {
 
+    private static final int SCANNER_HANDLER_WHAT_PATH_NOT_FOUND = 2;
+
     private SurfaceView surfaceView;
     private CameraSource cameraSource;
     private TextView textView;
     private BarcodeDetector barcodeDetector;
-    private Handler pathfoundhandler;
+    private Handler scannerHandler;
 
     private String previousPathScanned;//to not make many toast
 
@@ -52,15 +53,12 @@ public class ScannerActivity extends Activity {
 
         detected = false;
         initComponents();
-        pathfoundhandler = new Handler(){
+        scannerHandler = new Handler(){
             @Override
             public void handleMessage(@NonNull Message msg) {
-                if(((String)msg.obj).equals("notfound")){
-                    notifyUser("Questo percorso non esiste");
-                }
-                else{
-                    String pathfound = (String)msg.obj;
-                    textView.setText(pathfound);
+                if(msg.what == SCANNER_HANDLER_WHAT_PATH_NOT_FOUND){
+                    Toast.makeText(ScannerActivity.this, "IL QR CODE SCANNERIZZATO NON E' ASSOCIATO A NESSUN PERCORSO", Toast.LENGTH_SHORT).show();
+
                 }
 
             }
@@ -116,14 +114,6 @@ public class ScannerActivity extends Activity {
                 if(qrCodes.size() != 0 && !detected){
                     if(sessionType.equals(MainMenu.SESSION_CREATE)){
                         String qrCodeScanned = qrCodes.valueAt(0).displayValue;
-                        /*Message m = Message.obtain();
-                        m.obj = pathscanned;
-                        m.setTarget(pathfoundhandler);
-                        m.sendToTarget();
-                        //start pop up window with existent paths
-                        Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
-                        startActivity(i);
-                        detected = true;*/
                         //start creating path arcore session
                         Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
                         String msg = MainMenu.SESSION_CREATE;
@@ -132,35 +122,17 @@ public class ScannerActivity extends Activity {
                         startActivity(i);
                     }
                     else if(sessionType.equals(MainMenu.SESSION_FIND)){
-                        /*String pathscanned = qrCodes.valueAt(0).displayValue;
-                        String fileName = pathscanned;
-                        ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
-                        File directory = contextWrapper.getDir(getFilesDir().getName(), Context.MODE_PRIVATE);
-                        File arpathFound  = new File(directory, fileName);
-                        if(!arpathFound.exists()){//notify user that pathscanned doesnt exist
-                            //send to handlet notfound message to notify user by UI
-                            if(!pathscanned.equals(previousPathScanned)){
-                                Message m = Message.obtain();
-                                String msg = "notfound";
-                                m.obj = msg;
-                                m.setTarget(pathfoundhandler);
-                                m.sendToTarget();
-                                previousPathScanned = pathscanned;
-                            }
-                        }//notify user that pathscanned doesnt exist
-                        else {
-                            Intent i = new Intent(ScannerActivity.this, IndoorNavSession.class);
-                            String msg = MainMenu.SESSION_FIND;
-                            i.putExtra("sessiontype", msg);
-                            i.putExtra("path", pathscanned);
-                            startActivity(i);
-                        }*/
                         //start pop up window, which contains the list of the files within qr directory
                         String qrCodeScanned = qrCodes.valueAt(0).displayValue;
-                        Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
-                        i.putExtra("qrCode", qrCodeScanned);
-                        startActivity(i);
-                        detected = true;
+                        if(qrCodeDirectoryExists(qrCodeScanned)){
+                            Intent i = new Intent(ScannerActivity.this, PopUpWindow.class);
+                            i.putExtra("qrCode", qrCodeScanned);
+                            startActivity(i);
+                            detected = true;
+                        }
+                        else{
+                            notifyHandler(SCANNER_HANDLER_WHAT_PATH_NOT_FOUND);
+                        }
                     }
 
                 }
@@ -168,9 +140,29 @@ public class ScannerActivity extends Activity {
         });
     }
 
-    private void notifyUser(String message){
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    private void notifyHandler(int what){
+        Message m = Message.obtain();
+        m.what = what;
+        scannerHandler.sendMessage(m);
     }
+
+    private boolean qrCodeDirectoryExists(String qrCode){
+        ContextWrapper contextWrapper = new ContextWrapper(this.getApplicationContext());
+        File appFilesDirectory = contextWrapper.getDir(this.getFilesDir().getName(), Context.MODE_PRIVATE);
+        File qrDirectory = new File(appFilesDirectory, qrCode);
+        if(!qrDirectory.exists()){
+            return false;
+        }
+        return true;
+    }
+
+    private void notifyHandler(int what, Object obj){
+        Message m = Message.obtain();
+        m.what = what;
+        m.obj = obj;
+        scannerHandler.sendMessage(m);
+    }
+
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
