@@ -75,7 +75,7 @@ class TextTextureCache {
   }
 
   val textPaint = Paint().apply {
-    textSize = 500f
+    textSize = 30f
     setARGB(0xff, 0xea, 0x43, 0x35)
     style = Paint.Style.FILL
     isAntiAlias = true
@@ -90,8 +90,8 @@ class TextTextureCache {
   }
 
   private fun generateBitmapFromString(string: String): Bitmap {
-    val w = 5000
-    val h = 5000
+    val w = 256
+    val h = 256
     return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
       eraseColor(0)
 

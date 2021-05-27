@@ -106,7 +106,6 @@ class LabelRender {
   fun draw(
           render: SampleRender,
           viewProjectionMatrix: FloatArray,
-          cameraPose: Pose,
           label: String
   ) {
     labelOrigin[0] = -0.05f

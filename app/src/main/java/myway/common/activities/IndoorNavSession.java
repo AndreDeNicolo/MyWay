@@ -95,6 +95,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private static final float END_POINT_ROTATION_SPEED_DEGREES = 10;
     private static final float LABEL_SCALE = 5f;
     private static final double LABEL_SIGNAL_WARN_DISTANCE = 5f;
+    private static final float LABEL_CORRECTION_ANGLE = -45f;//angolo di correzzione delle label(vengono piazzate girate di 45gradi)
 
     //ISTRUZIONI PER L'HANDLER
     public static final int HANDLER_WHAT_UPDATE_CAMERA_TEXT_COORDS = 1;
@@ -195,6 +196,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
     private final int MAX_3D_OBJECTS = 1000;
     private TextView cameraCoordTextView;
     private TextView measureInfoTextView;
+    private TextView labelPlacementTextView;
     private ArrayList<SavedAnchor> savedAnchors = new ArrayList<>();
     private ArrayList<SavedAnchor> loadedAnchors = new ArrayList<>();
     private double renderDistance;
@@ -262,6 +264,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
         measureInfoTextView = findViewById(R.id.measureinfo);
         measureInfoTextView.setTextColor(Color.RED);
         measureInfoTextView.setText("Misura Distanza : off");
+        labelPlacementTextView = findViewById(R.id.labelPlaceminfo);
+        labelPlacementTextView.setTextColor(Color.RED);
+        labelPlacementTextView.setText("Piazzamento segnali : off");
         displayRotationHelper = new DisplayRotationHelper(/*context=*/ this);
         undoButton = findViewById(R.id.undo_button);
         undoButton.setOnClickListener(new View.OnClickListener() {
@@ -365,10 +370,16 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             return true;
         }
         if(item.getItemId() == R.id.showinfo){
-            if(cameraCoordTextView.getVisibility() == View.VISIBLE)
+            if(cameraCoordTextView.getVisibility() == View.VISIBLE) {
                 cameraCoordTextView.setVisibility(View.INVISIBLE);
-            else
+                measureInfoTextView.setVisibility(View.INVISIBLE);
+                labelPlacementTextView.setVisibility(View.INVISIBLE);
+            }
+            else{
                 cameraCoordTextView.setVisibility(View.VISIBLE);
+                measureInfoTextView.setVisibility(View.VISIBLE);
+                labelPlacementTextView.setVisibility(View.VISIBLE);
+            }
             return true;
         }
         if(item.getItemId() == R.id.exit){
@@ -416,6 +427,8 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     public void onClick(DialogInterface dialog, int which) {
                         label = (String)input.getText().toString();
                         notifyHandler(HANDLER_WHAT_TURN_ON_LABEL_PLACEMENT_MESSAGE);
+                        labelPlacementTextView.setText("Piazzamento segnali : on ("+label+")");
+                        labelPlacementTextView.setTextColor(Color.GREEN);
                     }
                 });
                 builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
@@ -429,6 +442,9 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
             else{
                 LABEL_PLACEMENT_ON = false;
                 notifyHandler(HANDLER_WHAT_TURN_OFF_LABEL_PLACEMENT_MESSAGE);
+                labelPlacementTextView.setText("Piazzamento segnali : off");
+                labelPlacementTextView.setTextColor(Color.RED);
+
             }
         }
         return false;
@@ -835,7 +851,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                     Matrix.scaleM(scaledModelMatrix, 0, LABEL_SCALE, LABEL_SCALE, LABEL_SCALE);
                     Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, scaledModelMatrix, 0);
                     Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                    labelRenderer.draw(render, modelViewProjectionMatrix, camera.getPose(), savedAnchors.get(i).getLabel());
+                    labelRenderer.draw(render, modelViewProjectionMatrix, savedAnchors.get(i).getLabel());
                 }
                 else{
                     //carico la model matrix ottenuta dall'ancora che voglio renderizzare
@@ -872,7 +888,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                             Matrix.scaleM(scaledModelMatrix, 0, LABEL_SCALE, LABEL_SCALE, LABEL_SCALE);
                             Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, scaledModelMatrix, 0);
                             Matrix.multiplyMM(modelViewProjectionMatrix, 0, projectionMatrix, 0, modelViewMatrix, 0);
-                            labelRenderer.draw(render, modelViewProjectionMatrix, camera.getPose(), loadedAnchors.get(i).getLabel());
+                            labelRenderer.draw(render, modelViewProjectionMatrix, loadedAnchors.get(i).getLabel());
                         }
                         else{
                             Matrix.multiplyMM(modelViewMatrix, 0, viewMatrix, 0, modelMatrix, 0);
@@ -933,7 +949,7 @@ public class IndoorNavSession extends AppCompatActivity implements SampleRender.
                         anchors.get(anchors.size()-1).getPose().toMatrix(mm, 0);
                         Matrix.multiplyMM(finalM, 0, mm, 0, camRotationMatrix, 0);
                         if(LABEL_PLACEMENT_ON){
-                            Matrix.rotateM(finalM, 0, -45, 0, 1, 0);
+                            Matrix.rotateM(finalM, 0, LABEL_CORRECTION_ANGLE, 0, 1, 0);
                             saveAnchor(finalM, SavedAnchor.ANCHOR_TYPE_LABEL, label);
                         }
                         else{
